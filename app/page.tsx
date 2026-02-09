@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo } from "react"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import type { UIMessage } from "ai"
@@ -12,6 +12,11 @@ import { ChatInput } from "@/components/chat-input"
 import { cn } from "@/lib/utils"
 import { useTypingSpeed } from "@/hooks/use-typing-speed"
 import { Plus } from "lucide-react"
+
+// Stable transport instance -- created once outside the component
+const chatTransport = new DefaultChatTransport({
+  api: "/api/chat",
+})
 
 export default function Home() {
   // Sidebar state
@@ -26,6 +31,8 @@ export default function Home() {
 
   // Model settings
   const [currentModel, setCurrentModel] = useState("llama-3.3-70b-versatile")
+  const modelRef = useRef(currentModel)
+  useEffect(() => { modelRef.current = currentModel }, [currentModel])
 
   // GenUI: Track the mood that was active when each user message was sent
   const [messageMoods, setMessageMoods] = useState<Record<string, "slow" | "neutral" | "fast">>({})
@@ -45,22 +52,13 @@ export default function Home() {
   // Input state
   const [input, setInput] = useState("")
 
-  // AI SDK useChat
+  // AI SDK useChat -- stable transport, dynamic body via sendMessage
   const { messages, sendMessage, status, setMessages, stop } = useChat({
-    transport: new DefaultChatTransport({
-      api: "/api/chat",
-      prepareSendMessagesRequest: ({ id, messages }) => ({
-        body: {
-          messages,
-          id,
-          model: currentModel,
-        },
-      }),
-    }),
+    transport: chatTransport,
   })
 
   const isLoading = status === "streaming" || status === "submitted"
-  console.log("[v0] Chat status:", status, "Messages count:", messages.length, "Messages:", messages.map(m => ({ id: m.id, role: m.role, parts: m.parts?.length })))
+  console.log("[v0] Chat status:", status, "Messages count:", messages.length)
 
   // Tag new user messages with the mood that was active when they were sent
   useEffect(() => {
@@ -145,7 +143,7 @@ export default function Home() {
   const handleSend = useCallback(() => {
     if (!input.trim() || isLoading) return
     pendingMoodRef.current = typingMood
-    sendMessage({ text: input })
+    sendMessage({ text: input }, { body: { model: modelRef.current } })
     setInput("")
     resetTypingSpeed()
   }, [input, isLoading, sendMessage, resetTypingSpeed, typingMood])
