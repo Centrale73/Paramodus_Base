@@ -1,9 +1,4 @@
-import {
-  consumeStream,
-  convertToModelMessages,
-  streamText,
-  UIMessage,
-} from "ai"
+import { convertToModelMessages, streamText, type UIMessage } from "ai"
 import { createGroq } from "@ai-sdk/groq"
 
 export const maxDuration = 60
@@ -26,11 +21,7 @@ export async function POST(req: Request) {
     system:
       "You are a professional workspace assistant. You help users with coding, analysis, writing, and general knowledge tasks. You provide clear, well-structured responses with markdown formatting when appropriate.",
     messages: await convertToModelMessages(messages),
-    abortSignal: req.signal,
   })
 
-  return result.toUIMessageStreamResponse({
-    originalMessages: messages,
-    consumeSseStream: consumeStream,
-  })
+  return result.toUIMessageStreamResponse()
 }

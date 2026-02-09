@@ -60,6 +60,7 @@ export default function Home() {
   })
 
   const isLoading = status === "streaming" || status === "submitted"
+  console.log("[v0] Chat status:", status, "Messages count:", messages.length, "Messages:", messages.map(m => ({ id: m.id, role: m.role, parts: m.parts?.length })))
 
   // Tag new user messages with the mood that was active when they were sent
   useEffect(() => {
@@ -282,37 +283,44 @@ export default function Home() {
             <EmptyState />
           ) : (
             messages.map((message, i) => {
+              const isUser = message.role === "user"
               const isLastAssistant =
                 message.role === "assistant" &&
                 i === messages.length - 1 &&
                 isLoading
               return (
-                <div key={message.id} data-message-id={message.id}>
-                  <div className="flex items-start gap-2">
-                    <ChatMessage
-                      message={message}
-                      isStreaming={isLastAssistant}
-                      mood={message.role === "user" ? messageMoods[message.id] || "neutral" : "neutral"}
-                    />
-                    {message.role === "assistant" && (
-                      <button
-                        onClick={() => handleToggleCheckpoint(message.id)}
-                        className={`shrink-0 mt-3 w-6 h-6 rounded flex items-center justify-center text-xs transition-all duration-200 ${
-                          checkpointedIds.has(message.id)
-                            ? "bg-emerald-500/20 border-emerald-500 text-emerald-500 border opacity-100"
-                            : "bg-muted/30 border-border/50 text-muted-foreground border opacity-0 hover:opacity-100"
-                        }`}
-                        title="Checkpoint this answer"
-                        style={{
-                          opacity: checkpointedIds.has(message.id)
-                            ? 1
-                            : undefined,
-                        }}
-                      >
-                        {"✓"}
-                      </button>
-                    )}
-                  </div>
+                <div
+                  key={message.id}
+                  data-message-id={message.id}
+                  className={cn(
+                    "flex gap-2",
+                    isUser ? "justify-end" : "justify-start"
+                  )}
+                >
+                  <ChatMessage
+                    message={message}
+                    isStreaming={isLastAssistant}
+                    mood={isUser ? messageMoods[message.id] || "neutral" : "neutral"}
+                  />
+                  {message.role === "assistant" && (
+                    <button
+                      onClick={() => handleToggleCheckpoint(message.id)}
+                      className={cn(
+                        "shrink-0 mt-3 w-6 h-6 rounded flex items-center justify-center text-xs transition-all duration-200 border",
+                        checkpointedIds.has(message.id)
+                          ? "bg-emerald-500/20 border-emerald-500 text-emerald-500 opacity-100"
+                          : "bg-muted/30 border-border/50 text-muted-foreground opacity-0 hover:opacity-100"
+                      )}
+                      title="Checkpoint this answer"
+                      style={{
+                        opacity: checkpointedIds.has(message.id)
+                          ? 1
+                          : undefined,
+                      }}
+                    >
+                      {"✓"}
+                    </button>
+                  )}
                 </div>
               )
             })

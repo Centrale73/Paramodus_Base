@@ -34,7 +34,7 @@ export function ChatMessage({ message, isStreaming, mood = "neutral" }: ChatMess
     <div
       className={cn(
         "flex flex-col max-w-[80%] animate-message-in",
-        isUser ? "self-end items-end" : "self-start items-start"
+        isUser ? "items-end" : "items-start"
       )}
     >
       <div
