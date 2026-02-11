@@ -1,12 +1,10 @@
 import webview
 import os
 import sys
-from database import init_db
-from api.bridge import ApiBridge
 
-from dotenv import load_dotenv  # <--- Add this
+from dotenv import load_dotenv
 
-load_dotenv()  # <--- Add this to load variables from .env
+load_dotenv()
 
 from database import init_db
 from api.bridge import ApiBridge

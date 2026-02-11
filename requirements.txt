@@ -3,7 +3,7 @@ pywebview
 openai
 groq
 anthropic
-google-generativeai
+google-genai
 pydantic
 python-dotenv
 requests
@@ -12,3 +12,4 @@ sqlalchemy
 pypdf
 lancedb
 tantivy
+fastembed

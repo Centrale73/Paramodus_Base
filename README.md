@@ -1,43 +1,50 @@
-
 # Agentic Workspace
 
-**Agentic Workspace** is a local, desktop-based AI assistant powered by Perplexity's `sonar-pro` model and the **Agno** (formerly PhiData) framework. It combines a sleek, modern UI with robust local memory and RAG (Retrieval-Augmented Generation) capabilities, packaged as a standalone desktop application.
+**Agentic Workspace** is a desktop-native AI assistant that brings together multiple LLM providers and a robust, local RAG (Retrieval-Augmented Generation) system into a single, private interface.
 
+Built with **Agno** (formerly PhiData) and **pywebview**, it runs locally as a native application, allowing you to chat with your documents using your preferred AI models without relying on browser tabs or complex cloud vector stores.
 
+## 🚀 Key Features
 
-## 🚀 Features
-
-*   **Desktop Native**: Built with `pywebview` for a lightweight, native window experience (no browser tabs required).
-*   **Intelligent Agent**: Uses **Perplexity Sonar Pro** for high-quality, up-to-date reasoning and search.
+*   **Multi-Model Support**: Switch seamlessly between top providers:
+    *   **OpenAI** (GPT-4o)
+    *   **Anthropic** (Claude 3.5 Sonnet)
+    *   **Google** (Gemini 2.0 Flash)
+    *   **Perplexity** (Sonar Pro)
+    *   **Groq** (Llama 3, Mixtral)
+    *   **xAI** (Grok)
+    *   **OpenRouter** (Access to DeepSeek, Qwen, etc.)
+*   **Local & Free RAG**: Integrated **LanceDB** vector database with **FastEmbed** runs entirely on your machine.
+    *   No API costs for embeddings or vector storage.
+    *   Private document storage.
+*   **Document Ingestion**: Ingest and chat with your files directly:
+    *   PDFs (`.pdf`)
+    *   Spreadsheets (`.csv`)
+    *   Code & Text (`.txt`, `.md`, `.py`, `.js`, `.json`)
 *   **Persistent Memory**:
-    *   **Chat History**: Automatically saved to a local SQLite database (`~/.myapp/chat_history.db`).
-    *   **Context Awareness**: The agent remembers past conversations and user details across sessions.
-*   **Local Knowledge Base**: Integrated **LanceDB** vector database for future RAG capabilities (document storage).
-*   **Interactive UI**:
-    *   **Real-time Streaming**: Watch the agent "think" and type out responses.
-    *   **Markdown Rendering**: Full support for code blocks, tables, and formatted text.
-    *   **Checkpoints**: Bookmark interesting responses to a dedicated sidebar for quick access.
-    *   **Smart Controls**: "Redo" generations, copy-to-clipboard, and in-app API key management.
+    *   **Smart History**: Conversations are saved to a local SQLite database (`~/.myapp/memory.db`).
+    *   **User Memories**: The agent learns and remembers details about you across sessions.
+*   **Desktop Native**: Lightweight windowed experience with real-time streaming and markdown rendering.
 
 ## 🛠️ Tech Stack
 
-*   **Framework**: [Agno](https://github.com/agno-ai/agno) (AI Agent orchestration)
-*   **GUI**: [pywebview](https://pywebview.flowrl.com/) (Desktop window engine)
-*   **Database**: SQLite (History) & LanceDB (Vector Knowledge)
-*   **Frontend**: HTML5, CSS3, Vanilla JS (with `anime.js` for animations)
-*   **Model Provider**: Perplexity API
+*   **Agent Framework**: [Agno](https://github.com/agno-ai/agno)
+*   **GUI**: [pywebview](https://pywebview.flowrl.com/)
+*   **Vector Database**: [LanceDB](https://lancedb.com/) (Local)
+*   **Embeddings**: [FastEmbed](https://qdrant.github.io/fastembed/) (Local CPU-first inference)
+*   **Frontend**: HTML5, CSS3, Vanilla JS
 
 ## 📦 Installation
 
 ### Prerequisites
 *   Python 3.10+
-*   A [Perplexity API Key](https://www.perplexity.ai/)
+*   Git
 
 ### Steps
 
 1.  **Clone the repository**
     ```bash
-    git clone https://github.com/Lmao53and2/agentic_workspace.git
+    git clone -b Multiple https://github.com/Lmao53and2/agentic_workspace.git
     cd agentic_workspace
     ```
 
@@ -55,12 +62,18 @@
     pip install -r requirements.txt
     ```
 
-4.  **Set up environment variables**
-    Create a `.env` file in the root directory:
+4.  **Configuration**
+    Create a `.env` file in the root directory and add the keys for the providers you intend to use:
     ```ini
-    PERPLEXITY_API_KEY=pplx-xxxxxxxxxxxxxxxxxxxxx
+    # Add the keys you need (you don't need all of them)
+    OPENAI_API_KEY=sk-...
+    ANTHROPIC_API_KEY=sk-ant-...
+    GOOGLE_API_KEY=...
+    PERPLEXITY_API_KEY=pplx-...
+    GROQ_API_KEY=gsk_...
+    XAI_API_KEY=...
+    OPENROUTER_API_KEY=sk-or-...
     ```
-    *(Alternatively, you can enter your key directly in the app's UI settings)*
 
 ## 🖥️ Usage
 
@@ -69,21 +82,21 @@ Run the application:
 python app.py
 ```
 
-The application window will launch. If you haven't set your API key in the `.env` file, enter it in the top-right input field and click **Save**.
+### Managing Knowledge (RAG)
+The application creates a local folder at `~/.myapp/lancedb` to store your vectorized documents.
+*   **Ingest**: Use the UI to select files (PDF, code, CSV). The system automatically chunks and embeds them using `BAAI/bge-small-en-v1.5` (running locally).
+*   **Chat**: Once ingested, simply ask questions about your documents. The agent automatically retrieves relevant context.
 
 ## 🧠 Project Structure
 
-*   `app.py`: Main entry point. Initializes the database, API bridge, and GUI window.
-*   `agents/workspace_agent.py`: Defines the Agno agent, including memory (SQLite) and knowledge (LanceDB) configuration.
-*   `api/bridge.py`: Connects the Python backend to the JavaScript frontend, handling threading and streaming.
-*   `database.py`: Handles raw SQLite operations for chat history persistence.
-*   `ui/`: Contains the frontend assets (`index.html`, CSS, JS logic).
+*   `app.py`: Entry point. Initializes the `ApiBridge` and the `pywebview` window.
+*   `agents/workspace_agent.py`: Core logic. Configures the Agno agent, handles multi-provider switching, and manages the LanceDB connection.
+*   `api/bridge.py`: Communication layer between the Python backend and JavaScript frontend.
+*   `database.py`: SQLite utility for chat history.
+*   `ui/`: Frontend assets (HTML/CSS/JS).
 
-## 🔮 Future Roadmap
+## 🔮 Roadmap
 
-*   [ ] Drag-and-drop file upload for RAG (PDF/CSV analysis).
-*   [ ] Multi-agent support (Researcher, Coder, Planner).
+*   [ ] Multi-agent collaboration (Researcher + Coder agents).
 *   [ ] Voice input/output integration.
-*   [ ] One-click executable generation with `pyinstaller`.
-
-
+*   [ ] One-click executable generation (EXE/DMG).

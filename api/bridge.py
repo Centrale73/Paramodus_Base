@@ -2,8 +2,9 @@ import os
 import threading
 import json
 import base64
+import uuid
 from agents.workspace_agent import get_agent, ingest_files, clear_knowledge_base
-from database import save_msg, get_history
+from database import save_msg, get_history, clear_session, get_all_sessions
 
 class ApiBridge:
     def __init__(self):
@@ -23,9 +24,29 @@ class ApiBridge:
         self.window = None
         self.multi_agent_mode = False
         self.uploaded_filenames = []
+        # Session management
+        self.current_session_id = str(uuid.uuid4())
 
     def set_window(self, window):
         self.window = window
+
+    def new_session(self):
+        """Start a new conversation session."""
+        self.current_session_id = str(uuid.uuid4())
+        return {"status": "success", "session_id": self.current_session_id}
+
+    def list_sessions(self):
+        """Retrieve list of all sessions."""
+        return get_all_sessions()
+
+    def switch_session(self, session_id):
+        """Switch to a specific session."""
+        self.current_session_id = session_id
+        return {"status": "success", "session_id": session_id}
+
+    def get_current_session_id(self):
+        """Return the current session ID."""
+        return self.current_session_id
 
     def set_api_key(self, key, provider="openai"):
         self.keys[provider] = key
@@ -49,7 +70,7 @@ class ApiBridge:
         return f"Multi-Agent mode: {'Enabled' if enabled else 'Disabled'}"
 
     def load_history(self):
-        return get_history()
+        return get_history(self.current_session_id)
 
     def clear_rag_context(self):
         clear_knowledge_base()
@@ -84,7 +105,7 @@ class ApiBridge:
             return
          
         if not target_id:
-            save_msg("user", user_text)
+            save_msg("user", user_text, self.current_session_id)
 
         thread = threading.Thread(target=self._run_logic, args=(user_text, target_id))
         thread.daemon = True
@@ -102,7 +123,13 @@ class ApiBridge:
             api_key = self.keys.get(provider)
             model_id = self.current_model
             
-            agent = get_agent(provider=provider, api_key=api_key, model_id=model_id, user_id="default_user")
+            agent = get_agent(
+                provider=provider, 
+                api_key=api_key, 
+                model_id=model_id, 
+                user_id="default_user",
+                session_id=self.current_session_id
+            )
             full_response = ""
             run_response = agent.run(user_text, stream=True)
             
@@ -115,11 +142,61 @@ class ApiBridge:
                     full_response += content
                     self.window.evaluate_js(f"receiveChunk({json.dumps(content)}, '{target_id or ''}')")
 
-            save_msg("bot", full_response)
-            self.window.evaluate_js("streamComplete()")
+            save_msg("bot", full_response, self.current_session_id)
+            
+            # GenUI: Detect tone from response
+            tone = self._detect_tone(full_response)
+            self.window.evaluate_js(f"streamComplete({json.dumps(tone)})")
         except Exception as e:
             self.window.evaluate_js(f"receiveError({json.dumps(str(e))})")
+    
+    def _detect_tone(self, text):
+        """
+        Simple keyword-based tone detection for GenUI.
+        Returns: 'calm', 'excited', 'serious', or 'playful'
+        """
+        text_lower = text.lower()
+        
+        # Score each tone based on keyword presence
+        scores = {
+            'excited': 0,
+            'playful': 0,
+            'serious': 0,
+            'calm': 0
+        }
+        
+        # Excited indicators
+        excited_words = ['!', 'amazing', 'awesome', 'fantastic', 'great', 'excellent', 
+                        'wonderful', 'exciting', 'incredible', 'brilliant', 'love']
+        for word in excited_words:
+            scores['excited'] += text_lower.count(word)
+        
+        # Playful indicators
+        playful_words = ['😊', '😄', '🎉', 'haha', 'fun', 'enjoy', 'play', 'joke', 
+                        'funny', 'silly', 'cool', '👍', '✨']
+        for word in playful_words:
+            scores['playful'] += text_lower.count(word)
+        
+        # Serious indicators
+        serious_words = ['important', 'critical', 'warning', 'caution', 'error',
+                        'must', 'should', 'require', 'necessary', 'essential',
+                        'security', 'risk', 'issue', 'problem', 'careful']
+        for word in serious_words:
+            scores['serious'] += text_lower.count(word)
+        
+        # Calm indicators (gentle, instructional)
+        calm_words = ['here', 'let me', 'simply', 'just', 'easy', 'step', 'guide',
+                     'help', 'explain', 'understand', 'note', 'consider']
+        for word in calm_words:
+            scores['calm'] += text_lower.count(word)
+        
+        # Return the highest scoring tone, default to 'calm'
+        if max(scores.values()) == 0:
+            return 'calm'
+        
+        return max(scores, key=scores.get)
 
     def _run_multi_agent(self, user_text, target_id):
         # Placeholder for multi-agent support if needed, but keeping it simple for now
         self._run_single_agent(user_text, target_id)
+

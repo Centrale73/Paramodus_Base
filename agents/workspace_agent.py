@@ -9,6 +9,7 @@ from agno.models.xai import xAI
 from agno.db.sqlite import SqliteDb
 from agno.knowledge.knowledge import Knowledge
 from agno.vectordb.lancedb import LanceDb
+from agno.knowledge.embedder.fastembed import FastEmbedEmbedder
 from agno.knowledge.reader.pdf_reader import PDFReader
 from agno.knowledge.reader.csv_reader import CSVReader
 from agno.knowledge.reader.text_reader import TextReader
@@ -28,11 +29,15 @@ db = SqliteDb(db_file=os.path.join(app_data, "memory.db"))
 # Local LanceDB for knowledge (FREE)
 LANCE_URI = os.path.join(app_data, "lancedb")
 
-# Knowledge Base initialization (Fixed: removed 'chunker' arg)
+# Knowledge Base initialization with FastEmbed
 knowledge = Knowledge(
     vector_db=LanceDb(
         table_name="user_documents",
         uri=LANCE_URI,
+        embedder=FastEmbedEmbedder(
+            id="BAAI/bge-small-en-v1.5",
+            dimensions=384
+        ),
     ),
 )
 
@@ -243,6 +248,7 @@ def get_agent(
     api_key: Optional[str] = None, 
     model_id: Optional[str] = None, 
     user_id: str = USER_ID,
+    session_id: str = "workspace_main_session",
     enable_rag: bool = True
 ):
     """
@@ -250,7 +256,7 @@ def get_agent(
     """
     agent_config = {
         "model": get_model(provider, api_key, model_id),
-        "session_id": "workspace_main_session",
+        "session_id": session_id,
         "markdown": True,
         "description": "You are a professional workspace assistant with access to uploaded documents.",
         "db": db,
@@ -266,3 +272,4 @@ def get_agent(
         agent_config["search_knowledge"] = True
     
     return Agent(**agent_config)
+
