@@ -6,6 +6,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agentic Workspace</title>
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Proactive Notification Styles */
+        .proactive-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #2a2a2a;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-width: 350px;
+            animation: slideIn 0.3s ease-out;
+            color: #fff;
+        }
+        .proactive-notification.critical {
+            border-left-color: #dc3545;
+        }
+        .proactive-notification.warning {
+            border-left-color: #ffc107;
+        }
+        .proactive-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .proactive-close {
+            cursor: pointer;
+            opacity: 0.7;
+        }
+        .proactive-close:hover {
+            opacity: 1;
+        }
+        .proactive-message {
+            font-size: 0.9em;
+            line-height: 1.4;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
 </head>
 
 <body>
@@ -126,11 +170,48 @@
             <!-- Blocks generated dynamically for each AI answer -->
         </div>
     </div>
+    
+    <!-- Proactive Notification Container -->
+    <div id="proactive-container"></div>
 
     <!-- Scripts -->
     <script src="anime.min.js"></script>
     <script src="marked.min.js"></script>
     <script src="js/app.js"></script>
+    
+    <!-- Proactive Logic -->
+    <script>
+        function receiveProactiveNotification(notification) {
+            console.log("Proactive Notification:", notification);
+            
+            const container = document.getElementById('proactive-container') || document.body;
+            const div = document.createElement('div');
+            
+            // Map alert type to CSS class
+            const alertClass = notification.alert_type === 'critical' ? 'critical' : 
+                               notification.alert_type === 'warning' ? 'warning' : 'info';
+                               
+            div.className = `proactive-notification ${alertClass}`;
+            div.innerHTML = `
+                <div class="proactive-title">
+                    <span>${notification.task_type}</span>
+                    <span class="proactive-close" onclick="this.parentElement.parentElement.remove()">×</span>
+                </div>
+                <div class="proactive-message">${notification.message}</div>
+            `;
+            
+            container.appendChild(div);
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if(div.parentElement) {
+                    div.style.opacity = '0';
+                    div.style.transform = 'translateX(100%)';
+                    setTimeout(() => div.remove(), 300);
+                }
+            }, 10000);
+        }
+    </script>
 </body>
 
 </html>
