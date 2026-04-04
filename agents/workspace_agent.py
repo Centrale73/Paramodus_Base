@@ -14,6 +14,7 @@ from agno.knowledge.reader.pdf_reader import PDFReader
 from agno.knowledge.reader.csv_reader import CSVReader
 from agno.knowledge.reader.text_reader import TextReader
 from agno.knowledge.chunking.recursive import RecursiveChunking
+from agno.knowledge.document.base import Document
 
 import os
 import tempfile
@@ -55,15 +56,15 @@ def ingest_files(files: List[Dict[str, any]]) -> bool:
     """
     Ingest files into the LOCAL vector database (FREE).
     """
-    all_docs = []
-    
+    ingested_count = 0
+
     for file_info in files:
         name = file_info["name"]
         data = file_info["data"]
-        
-        # Save to temp file to use Agno readers
+
+        # Save to temp file so Agno readers can access it by path
         with tempfile.NamedTemporaryFile(
-            delete=False, 
+            delete=False,
             suffix=os.path.splitext(name)[1]
         ) as tmp:
             tmp.write(data)
@@ -72,38 +73,35 @@ def ingest_files(files: List[Dict[str, any]]) -> bool:
         try:
             # Select appropriate reader based on file extension
             if name.lower().endswith(".pdf"):
-                # Pass chunking strategy to the Reader, not Knowledge
                 reader = PDFReader(chunking_strategy=DEFAULT_CHUNKER)
-                docs = reader.read(tmp_path)
             elif name.lower().endswith(".csv"):
                 reader = CSVReader(chunking_strategy=DEFAULT_CHUNKER)
-                docs = reader.read(tmp_path)
             elif name.lower().endswith((".txt", ".md", ".py", ".js", ".json")):
                 reader = TextReader(chunking_strategy=DEFAULT_CHUNKER)
-                docs = reader.read(tmp_path)
             else:
                 print(f"Unsupported file type: {name}")
                 continue
-            
-            # Add filename to metadata for tracking
-            for doc in docs:
-                doc.meta_data["filename"] = name
-            
-            all_docs.extend(docs)
-            
+
+            # agno 2.x API: insert by path, passing reader and metadata
+            knowledge.insert(
+                path=tmp_path,
+                name=name,
+                reader=reader,
+                metadata={"filename": name},
+                upsert=True,
+            )
+            ingested_count += 1
+
         except Exception as e:
             print(f"Error processing {name}: {e}")
         finally:
-            # Clean up temp file
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    # Load documents into the knowledge base
-    if all_docs:
-        knowledge.load_documents(all_docs, upsert=True)
-        print(f"✓ Successfully ingested {len(all_docs)} document chunks from {len(files)} files")
+    if ingested_count > 0:
+        print(f"✓ Successfully ingested {ingested_count} file(s) into the knowledge base")
         return True
-    
+
     print("⚠ No documents were ingested")
     return False
 
@@ -113,29 +111,15 @@ def ingest_text(text: str, source_name: str = "text_input") -> bool:
     Ingest raw text directly into the LOCAL vector database (FREE).
     """
     try:
-        # Pass chunking strategy to the Reader
-        reader = TextReader(chunking_strategy=DEFAULT_CHUNKER)
-        
-        with tempfile.NamedTemporaryFile(
-            mode='w', 
-            delete=False, 
-            suffix=".txt"
-        ) as tmp:
-            tmp.write(text)
-            tmp_path = tmp.name
-        
-        try:
-            docs = reader.read(tmp_path)
-            for doc in docs:
-                doc.meta_data["source"] = source_name
-            
-            knowledge.load_documents(docs, upsert=True)
-            print(f"✓ Successfully ingested text from {source_name}")
-            return True
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-                
+        # agno 2.x API: insert text_content directly — no temp file needed
+        knowledge.insert(
+            text_content=text,
+            name=source_name,
+            metadata={"source": source_name},
+            upsert=True,
+        )
+        print(f"✓ Successfully ingested text from {source_name}")
+        return True
     except Exception as e:
         print(f"Error ingesting text: {e}")
         return False
@@ -146,17 +130,16 @@ def clear_knowledge_base() -> bool:
     Clear all documents from the LOCAL knowledge base (FREE).
     """
     try:
-        import lancedb
-        db_conn = lancedb.connect(LANCE_URI)
-        
-        if "user_documents" in db_conn.table_names():
-            db_conn.drop_table("user_documents")
+        # agno 2.x API: drop via the LanceDb wrapper so the internal
+        # table reference stays consistent, then recreate the empty table.
+        if knowledge.vector_db.exists():
+            knowledge.vector_db.drop()
             print("✓ Knowledge base cleared")
-        
-        # Re-initialize the table structure
+
+        # Recreate the empty table so subsequent inserts work without restart
         knowledge.vector_db.create()
         return True
-        
+
     except Exception as e:
         print(f"Error clearing knowledge base: {e}")
         return False
@@ -167,8 +150,9 @@ def search_knowledge_base(query: str, limit: int = 5) -> List[Dict]:
     Search the LOCAL knowledge base (FREE).
     """
     try:
-        results = knowledge.vector_db.search(query=query, limit=limit)
-        return results
+        # agno 2.x API: search via Knowledge, not directly on LanceDb
+        results: List[Document] = knowledge.search(query=query, max_results=limit)
+        return [doc.to_dict() for doc in results]
     except Exception as e:
         print(f"Error searching knowledge base: {e}")
         return []
@@ -179,12 +163,9 @@ def get_knowledge_stats() -> Dict:
     Get statistics about the LOCAL knowledge base.
     """
     try:
-        import lancedb
-        db_conn = lancedb.connect(LANCE_URI)
-        
-        if "user_documents" in db_conn.table_names():
-            table = db_conn.open_table("user_documents")
-            count = table.count_rows()
+        # agno 2.x API: use LanceDb wrapper methods
+        if knowledge.vector_db.exists():
+            count = knowledge.vector_db.get_count()
             return {
                 "total_chunks": count,
                 "status": "active"
