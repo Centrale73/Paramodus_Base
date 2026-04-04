@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.db
+.myapp/
+dist/
+build/
+*.spec
+.pytest_cache/
