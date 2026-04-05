@@ -243,6 +243,15 @@ async function toggleAgents() {
 async function updateProvider() {
     const p = document.getElementById('provider-select').value;
     await window.pywebview.api.set_provider(p);
+
+    // Show/hide cloud API section vs Bonsai panel
+    const isLocal = (p === 'bonsai');
+    document.getElementById('cloud-api-section').style.display = isLocal ? 'none' : 'block';
+    document.getElementById('bonsai-panel').style.display      = isLocal ? 'block' : 'none';
+
+    if (isLocal) {
+        await refreshBonsaiStatus();
+    }
 }
 
 async function updateModel() {
@@ -614,4 +623,187 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', setupScrollSync);
 } else {
     setupScrollSync();
+}
+
+
+// ============================================================
+// BONSAI 8B LOCAL MODEL — UI LOGIC
+// ============================================================
+
+let _bonsaiDownloading = false;
+let _bonsaiStarting    = false;
+
+// ----- Status refresh -----
+
+async function refreshBonsaiStatus() {
+    const modelKey = document.getElementById('bonsai-model-select').value;
+    let status;
+    try {
+        status = await window.pywebview.api.get_local_model_status(modelKey);
+    } catch (e) {
+        console.warn('refreshBonsaiStatus error:', e);
+        return;
+    }
+
+    const dot      = document.getElementById('bonsai-status-dot');
+    const text     = document.getElementById('bonsai-status-text');
+    const dlSec    = document.getElementById('bonsai-download-section');
+    const srvSec   = document.getElementById('bonsai-server-section');
+    const warnBin  = document.getElementById('bonsai-binary-warn');
+    const btnDl    = document.getElementById('btn-download-bonsai');
+    const btnStart = document.getElementById('btn-start-bonsai');
+    const btnStop  = document.getElementById('btn-stop-bonsai');
+
+    // Binary warning
+    warnBin.style.display = status.binary_found ? 'none' : 'block';
+
+    if (status.server_running) {
+        dot.className  = 'status-dot status-online';
+        text.textContent = '● Server running — ready to chat';
+        dlSec.style.display  = 'none';
+        srvSec.style.display = 'block';
+        btnStart.style.display = 'none';
+        btnStop.style.display  = 'block';
+        _bonsaiStarting = false;
+    } else if (_bonsaiStarting) {
+        dot.className  = 'status-dot status-busy';
+        text.textContent = 'Starting server…';
+    } else if (status.model_downloaded) {
+        dot.className  = 'status-dot status-offline';
+        text.textContent = 'Model ready — server not running';
+        dlSec.style.display  = 'none';
+        srvSec.style.display = 'block';
+        btnStart.style.display = 'block';
+        btnStop.style.display  = 'none';
+    } else if (_bonsaiDownloading) {
+        dot.className  = 'status-dot status-busy';
+        text.textContent = 'Downloading model…';
+        dlSec.style.display  = 'block';
+        srvSec.style.display = 'none';
+    } else {
+        dot.className  = 'status-dot status-offline';
+        text.textContent = status.partial_exists
+            ? 'Partial download found — resume available'
+            : 'Model not downloaded';
+        dlSec.style.display  = 'block';
+        srvSec.style.display = 'none';
+        btnDl.disabled = !status.binary_found && modelKey === 'bonsai-8b-q4' ? false : !status.binary_found;
+    }
+}
+
+// Auto-refresh status every 4 s while Bonsai panel is visible
+setInterval(() => {
+    const panel = document.getElementById('bonsai-panel');
+    if (panel && panel.style.display !== 'none') {
+        refreshBonsaiStatus();
+    }
+}, 4000);
+
+// ----- Variant change -----
+
+async function onBonsaiVariantChange() {
+    await refreshBonsaiStatus();
+}
+
+// ----- Download -----
+
+async function downloadBonsai() {
+    const modelKey = document.getElementById('bonsai-model-select').value;
+
+    _bonsaiDownloading = true;
+    document.getElementById('bonsai-progress-wrap').style.display = 'block';
+    document.getElementById('btn-download-bonsai').style.display  = 'none';
+    document.getElementById('btn-cancel-download').style.display  = 'block';
+
+    const dot  = document.getElementById('bonsai-status-dot');
+    const text = document.getElementById('bonsai-status-text');
+    dot.className    = 'status-dot status-busy';
+    text.textContent = 'Starting download…';
+
+    await window.pywebview.api.download_bonsai(modelKey);
+}
+
+// Called from Python: updateDownloadProgress(percent, message)
+function updateDownloadProgress(pct, msg) {
+    const fill  = document.getElementById('bonsai-progress-fill');
+    const label = document.getElementById('bonsai-progress-label');
+    const dot   = document.getElementById('bonsai-status-dot');
+    const text  = document.getElementById('bonsai-status-text');
+
+    if (pct === -1.0) {
+        // Error
+        _bonsaiDownloading = false;
+        dot.className    = 'status-dot status-error';
+        text.textContent = msg;
+        document.getElementById('btn-download-bonsai').style.display  = 'block';
+        document.getElementById('btn-cancel-download').style.display  = 'none';
+        document.getElementById('bonsai-progress-wrap').style.display = 'none';
+        return;
+    }
+
+    if (pct >= 100) {
+        // Complete
+        _bonsaiDownloading = false;
+        fill.style.width   = '100%';
+        label.textContent  = msg;
+        dot.className      = 'status-dot status-offline';
+        text.textContent   = 'Download complete';
+
+        setTimeout(() => {
+            document.getElementById('bonsai-progress-wrap').style.display = 'none';
+            refreshBonsaiStatus();
+        }, 1500);
+        return;
+    }
+
+    fill.style.width  = `${pct}%`;
+    label.textContent = msg;
+    dot.className     = 'status-dot status-busy';
+    text.textContent  = `Downloading… ${pct.toFixed(1)}%`;
+}
+
+async function cancelBonsaiDownload() {
+    const modelKey = document.getElementById('bonsai-model-select').value;
+    _bonsaiDownloading = false;
+    await window.pywebview.api.cancel_download_bonsai(modelKey);
+    document.getElementById('bonsai-progress-wrap').style.display = 'none';
+    document.getElementById('btn-download-bonsai').style.display  = 'block';
+    document.getElementById('btn-cancel-download').style.display  = 'none';
+    await refreshBonsaiStatus();
+}
+
+// ----- Server start / stop -----
+
+async function startBonsai() {
+    const modelKey   = document.getElementById('bonsai-model-select').value;
+    const gpuLayers  = parseInt(document.getElementById('bonsai-gpu-layers').value) || 0;
+
+    _bonsaiStarting = true;
+    const dot  = document.getElementById('bonsai-status-dot');
+    const text = document.getElementById('bonsai-status-text');
+    dot.className    = 'status-dot status-busy';
+    text.textContent = 'Loading model into memory… (this may take 30–60 s)';
+
+    document.getElementById('btn-start-bonsai').disabled = true;
+
+    await window.pywebview.api.start_bonsai(modelKey, gpuLayers);
+}
+
+// Called from Python when server is ready or failed
+function onBonsaiServerReady(ok) {
+    _bonsaiStarting = false;
+    document.getElementById('btn-start-bonsai').disabled = false;
+    if (ok) {
+        refreshBonsaiStatus();
+    } else {
+        const dot  = document.getElementById('bonsai-status-dot');
+        const text = document.getElementById('bonsai-status-text');
+        dot.className    = 'status-dot status-error';
+        text.textContent = '✗ Server failed to start — check ~/.myapp/llama_server.log';
+    }
+}
+
+async function stopBonsai() {
+    await window.pywebview.api.stop_bonsai();
+    setTimeout(refreshBonsaiStatus, 500);
 }

@@ -15,6 +15,7 @@ from agno.knowledge.reader.csv_reader import CSVReader
 from agno.knowledge.reader.text_reader import TextReader
 from agno.knowledge.chunking.recursive import RecursiveChunking
 from agno.knowledge.document.base import Document
+from local_model.manager import bonsai, SERVER_HOST, SERVER_PORT
 
 import os
 import tempfile
@@ -193,6 +194,8 @@ DEFAULT_MODELS = {
     "grok": "grok-3",
     "openrouter": "openai/gpt-4o-mini",
     "perplexity": "sonar-pro",
+    # Bonsai 8B runs locally via llama-server — no API key needed
+    "bonsai": "bonsai-8b",
 }
 
 
@@ -218,6 +221,16 @@ def get_model(provider: str, api_key: str, model_id: Optional[str] = None):
         return OpenRouter(id=model_id, api_key=api_key)
     elif provider == "perplexity":
         return Perplexity(id=model_id, api_key=api_key)
+    elif provider == "bonsai":
+        # Bonsai 8B runs locally via llama-server on localhost:8080.
+        # We use OpenAIChat with a custom base_url — the server exposes an
+        # OpenAI-compatible /v1 endpoint.  Any non-empty string works as api_key.
+        base_url = f"http://{SERVER_HOST}:{SERVER_PORT}/v1"
+        return OpenAIChat(
+            id=model_id or DEFAULT_MODELS["bonsai"],
+            api_key="local",
+            base_url=base_url,
+        )
     else:
         # Fallback to OpenAI
         print(f"Warning: Unknown provider '{provider}', falling back to OpenAI")

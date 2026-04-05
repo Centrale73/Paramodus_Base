@@ -49,6 +49,8 @@
                             onclick="selectProvider('openrouter', 'OpenRouter')">OpenRouter</div>
                         <div class="dropdown-option" data-value="perplexity"
                             onclick="selectProvider('perplexity', 'Perplexity')">Perplexity</div>
+                        <div class="dropdown-option" data-value="bonsai"
+                            onclick="selectProvider('bonsai', '🌿 Bonsai 8B (Local)')">🌿 Bonsai 8B (Local)</div>
                     </div>
                 </div>
                 <input type="hidden" id="provider-select" value="openai">
@@ -57,10 +59,63 @@
                 <input type="text" id="model-input" class="config-input" placeholder="e.g. gpt-4o"
                     onchange="updateModel()">
 
-                <label class="config-label">API Key</label>
-                <input type="password" id="api-key" class="config-input" placeholder="sk-...">
+                <!-- Cloud provider: API Key input -->
+                <div id="cloud-api-section">
+                    <label class="config-label">API Key</label>
+                    <input type="password" id="api-key" class="config-input" placeholder="sk-...">
+                    <button class="btn-save" onclick="saveKey()">Save Configuration</button>
+                </div>
 
-                <button class="btn-save" onclick="saveKey()">Save Configuration</button>
+                <!-- Local model: Bonsai panel (shown when bonsai is selected) -->
+                <div id="bonsai-panel" style="display:none;">
+                    <div class="bonsai-status-bar" id="bonsai-status-bar">
+                        <span id="bonsai-status-dot" class="status-dot status-offline"></span>
+                        <span id="bonsai-status-text">Checking…</span>
+                    </div>
+
+                    <!-- Model variant selector -->
+                    <label class="config-label" style="margin-top:12px;">Model Variant</label>
+                    <select id="bonsai-model-select" class="config-input" onchange="onBonsaiVariantChange()">
+                        <option value="bonsai-8b-q4">Q4_K_M unpacked (~4.6 GB) — CPU friendly</option>
+                        <option value="bonsai-8b-native">Q1_0_g128 native 1-bit (~1 GB) — GPU + PrismML fork</option>
+                    </select>
+
+                    <!-- GPU layers -->
+                    <label class="config-label" style="margin-top:10px;">
+                        GPU Layers <span style="opacity:0.5;font-size:0.8em;">(0 = CPU only)</span>
+                    </label>
+                    <input type="number" id="bonsai-gpu-layers" class="config-input"
+                        value="0" min="0" max="99" style="width:80px;">
+
+                    <!-- Download -->
+                    <div id="bonsai-download-section" style="margin-top:12px;">
+                        <div id="bonsai-progress-wrap" style="display:none; margin-bottom:8px;">
+                            <div class="progress-bar-bg">
+                                <div class="progress-bar-fill" id="bonsai-progress-fill" style="width:0%"></div>
+                            </div>
+                            <div id="bonsai-progress-label" style="font-size:0.78rem; opacity:0.7; margin-top:4px;"></div>
+                        </div>
+                        <button class="btn-bonsai-action" id="btn-download-bonsai"
+                            onclick="downloadBonsai()">⬇ Download Model</button>
+                        <button class="btn-bonsai-cancel" id="btn-cancel-download" style="display:none;"
+                            onclick="cancelBonsaiDownload()">✕ Cancel</button>
+                    </div>
+
+                    <!-- Server controls -->
+                    <div id="bonsai-server-section" style="margin-top:10px; display:none;">
+                        <button class="btn-bonsai-action" id="btn-start-bonsai"
+                            onclick="startBonsai()">▶ Start Server</button>
+                        <button class="btn-bonsai-stop" id="btn-stop-bonsai" style="display:none;"
+                            onclick="stopBonsai()">■ Stop Server</button>
+                    </div>
+
+                    <div id="bonsai-binary-warn" style="display:none;"
+                        class="bonsai-warn-box">
+                        ⚠ llama-server not found.<br>
+                        Run <code>python scripts/get_llama_server.py</code> or bundle it via
+                        <code>paramodus.spec</code>.
+                    </div>
+                </div>
             </div>
 
             <hr class="divider">

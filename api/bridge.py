@@ -5,18 +5,22 @@ import base64
 import uuid
 from agents.workspace_agent import get_agent, ingest_files, clear_knowledge_base
 from database import save_msg, get_history, clear_session, get_all_sessions
+from local_model.manager import bonsai, DEFAULT_MODEL
 
 class ApiBridge:
     def __init__(self):
         # Load keys from environment
         self.keys = {
-            "openai": os.environ.get("OPENAI_API_KEY"),
-            "anthropic": os.environ.get("ANTHROPIC_API_KEY"),
-            "gemini": os.environ.get("GEMINI_API_KEY"),
-            "groq": os.environ.get("GROQ_API_KEY"),
-            "grok": os.environ.get("XAI_API_KEY"),
+            "openai":     os.environ.get("OPENAI_API_KEY"),
+            "anthropic":  os.environ.get("ANTHROPIC_API_KEY"),
+            "gemini":     os.environ.get("GEMINI_API_KEY"),
+            "groq":       os.environ.get("GROQ_API_KEY"),
+            "grok":       os.environ.get("XAI_API_KEY"),
             "openrouter": os.environ.get("OPENROUTER_API_KEY"),
-            "perplexity": os.environ.get("PERPLEXITY_API_KEY")
+            "perplexity": os.environ.get("PERPLEXITY_API_KEY"),
+            # Bonsai runs locally — no real key, but must not be None so the
+            # api_key guard in start_chat_stream doesn't block it.
+            "bonsai":     "local",
         }
         # Default provider and model
         self.current_provider = os.environ.get("DEFAULT_PROVIDER", "openai")
@@ -60,6 +64,60 @@ class ApiBridge:
             self.current_provider = provider
             return f"Provider switched to {provider}"
         return "Invalid provider"
+
+    # ------------------------------------------------------------------
+    # Local Model (Bonsai 8B)
+    # ------------------------------------------------------------------
+
+    def get_local_model_status(self, model_key: str = DEFAULT_MODEL) -> dict:
+        """Return the current download + server status for a Bonsai model variant."""
+        return bonsai.get_status(model_key)
+
+    def get_bonsai_models(self) -> list:
+        """Return the full model catalog with per-variant download state."""
+        return bonsai.get_models()
+
+    def download_bonsai(self, model_key: str = DEFAULT_MODEL) -> dict:
+        """
+        Start a background download of the chosen Bonsai variant.
+        Progress is streamed back to the frontend via updateDownloadProgress().
+        """
+        def _worker():
+            def _cb(pct: float, msg: str):
+                if self.window:
+                    safe_msg = json.dumps(msg)
+                    self.window.evaluate_js(
+                        f"updateDownloadProgress({pct:.2f}, {safe_msg})"
+                    )
+            bonsai.download_model(model_key=model_key, progress_cb=_cb)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        return {"status": "started", "model_key": model_key}
+
+    def cancel_download_bonsai(self, model_key: str = DEFAULT_MODEL) -> dict:
+        """Cancel an in-progress download (removes the .partial file)."""
+        bonsai.cancel_download(model_key)
+        return {"status": "cancelled"}
+
+    def start_bonsai(self, model_key: str = DEFAULT_MODEL, n_gpu_layers: int = 0) -> dict:
+        """
+        Start llama-server in the background.
+        Calls onBonsaiServerReady(true/false) on the frontend when done.
+        """
+        def _worker():
+            ok = bonsai.start_server(model_key=model_key, n_gpu_layers=n_gpu_layers)
+            if self.window:
+                self.window.evaluate_js(f"onBonsaiServerReady({'true' if ok else 'false'})")
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        return {"status": "starting"}
+
+    def stop_bonsai(self) -> dict:
+        """Stop the running llama-server process."""
+        bonsai.stop_server()
+        return {"status": "stopped"}
 
     def set_model(self, model_id):
         self.current_model = model_id if model_id else None

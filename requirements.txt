@@ -13,3 +13,5 @@ pypdf
 lancedb
 tantivy
 fastembed
+# Local model support (Bonsai 8B via llama-server)
+huggingface_hub

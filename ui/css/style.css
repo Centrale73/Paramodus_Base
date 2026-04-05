@@ -952,3 +952,114 @@ body {
     position: relative;
     margin-right: 40px;
 }
+
+/* ============================================================
+   BONSAI LOCAL MODEL PANEL
+   ============================================================ */
+
+.bonsai-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    margin-top: 12px;
+}
+
+.status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-online  { background: #10b981; box-shadow: 0 0 6px #10b98166; }
+.status-offline { background: #6b7280; }
+.status-busy    { background: #f59e0b; box-shadow: 0 0 6px #f59e0b66; animation: pulse-busy 1.2s infinite; }
+.status-error   { background: #ef4444; }
+
+@keyframes pulse-busy {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+}
+
+.progress-bar-bg {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #7c3aed, #10b981);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.btn-bonsai-action {
+    width: 100%;
+    padding: 10px 0;
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.btn-bonsai-action:hover  { opacity: 0.85; }
+.btn-bonsai-action:active { transform: scale(0.98); }
+.btn-bonsai-action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-bonsai-stop {
+    width: 100%;
+    padding: 10px 0;
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid #ef444440;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 6px;
+}
+
+.btn-bonsai-stop:hover { background: rgba(239, 68, 68, 0.25); }
+
+.btn-bonsai-cancel {
+    width: 100%;
+    padding: 8px 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    margin-top: 6px;
+}
+
+.bonsai-warn-box {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: #f59e0b;
+    line-height: 1.5;
+}
+
+.bonsai-warn-box code {
+    background: rgba(0,0,0,0.3);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
