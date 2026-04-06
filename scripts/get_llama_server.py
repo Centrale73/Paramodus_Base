@@ -55,41 +55,58 @@ def _find_release_asset(assets: list[dict]) -> tuple[str, str]:
     is_arm = "arm" in machine or "aarch64" in machine
 
     def _score(name: str) -> int:
-        name = name.lower()
+        n = name.lower()
         score = 0
+
+        # "cudart-" packages are CUDA runtime DLL packs only — no server binary.
+        # They must never be selected regardless of platform.
+        if n.startswith("cudart"):
+            return -100
+
         if system == "Windows":
-            if "win" in name and name.endswith(".zip"):
-                score += 10
-                # Architecture match — critical to avoid Machine Type Mismatch
-                if is_arm:
-                    if "arm64" in name:  score += 8
-                    else:               score -= 20  # hard-penalise x64 on ARM
-                else:
-                    if "x64" in name or "amd64" in name: score += 8
-                    if "arm64" in name:  score -= 20  # hard-penalise ARM on x64
-                if "avx2" in name:   score += 3
-                elif "avx" in name:  score += 1
-                if "cuda" not in name and "vulkan" not in name:
-                    score += 1  # prefer CPU-only for broadest compatibility
+            # Must be a llama main binary zip
+            if not (n.startswith("llama-") and "bin" in n and "win" in n and n.endswith(".zip")):
+                return 0
+            score += 10
+
+            # Architecture — critical: wrong arch = Machine Type Mismatch crash
+            if is_arm:
+                if "arm64" in n:  score += 8
+                else:             score -= 20
+            else:
+                if "x64" in n:   score += 8
+                if "arm64" in n: score -= 20
+
+            # Prefer CPU-only build (broadest hardware compatibility, no GPU drivers needed)
+            if "cpu" in n:                          score += 4
+            elif "cuda" in n or "vulkan" in n or "hip" in n or "sycl" in n:
+                score -= 2   # deprioritise GPU-specific builds
+
+            # Legacy AVX scoring (for older release naming that had avx2 in name)
+            if "avx2" in n:   score += 2
+            elif "avx" in n:  score += 1
+
         elif system == "Linux":
-            if "ubuntu" in name or "linux" in name:
-                if name.endswith(".zip") or name.endswith(".tar.gz"):
-                    score += 10
-                if is_arm:
-                    if "arm64" in name or "aarch64" in name: score += 5
-                elif "x64" in name or "amd64" in name:
-                    score += 5
+            if not (n.startswith("llama-") and "bin" in n and n.endswith((".zip", ".tar.gz"))):
+                return 0
+            score += 10
+            if is_arm:
+                if "arm64" in n or "aarch64" in n: score += 5
+            else:
+                if "x64" in n or "amd64" in n:    score += 5
+            if "cpu" in n:  score += 3
+
         elif system == "Darwin":
-            if "macos" in name and (name.endswith(".zip") or name.endswith(".tar.gz")):
-                score += 10
-                if "arm64" in name and is_arm:
-                    score += 5
-                elif "x64" in name and not is_arm:
-                    score += 5
+            if not (n.startswith("llama-") and "macos" in n and n.endswith((".zip", ".tar.gz"))):
+                return 0
+            score += 10
+            if is_arm and "arm64" in n:      score += 5
+            elif not is_arm and "x64" in n:  score += 5
+
         return score
 
     ranked = sorted(assets, key=lambda a: _score(a["name"]), reverse=True)
-    if not ranked or _score(ranked[0]["name"]) == 0:
+    if not ranked or _score(ranked[0]["name"]) <= 0:
         raise RuntimeError(
             f"No compatible llama.cpp binary found for {system}/{machine}.\n"
             "Please download manually from https://github.com/ggerganov/llama.cpp/releases"
