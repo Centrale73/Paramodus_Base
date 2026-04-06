@@ -676,7 +676,7 @@ function onBonsaiSetupProgress(phase, pct, msg) {
         // Download done, server loading — dismiss overlay, show status dot
         overlay.classList.remove('visible');
         dot.className    = 'status-dot status-busy';
-        text.textContent = 'Loading model into memory… (30–60 s)';
+        text.textContent = 'Loading model… (may take 2–5 min first time)';
 
     } else if (phase === 'ready') {
         overlay.classList.remove('visible');

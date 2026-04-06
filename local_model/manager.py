@@ -274,7 +274,7 @@ class BonsaiManager:
         model_key:      str = DEFAULT_MODEL,
         n_gpu_layers:   int = 0,
         context_length: int = 4096,
-        timeout_s:      int = 90,
+        timeout_s:      int = 360,
     ) -> bool:
         """
         Start llama-server as a background subprocess.
