@@ -70,50 +70,7 @@
                 <div id="bonsai-panel" style="display:none;">
                     <div class="bonsai-status-bar" id="bonsai-status-bar">
                         <span id="bonsai-status-dot" class="status-dot status-offline"></span>
-                        <span id="bonsai-status-text">Checking…</span>
-                    </div>
-
-                    <!-- Model variant selector -->
-                    <label class="config-label" style="margin-top:12px;">Model Variant</label>
-                    <select id="bonsai-model-select" class="config-input" onchange="onBonsaiVariantChange()">
-                        <option value="bonsai-8b-q4">Q4_K_M unpacked (~4.6 GB) — CPU friendly</option>
-                        <option value="bonsai-8b-native">Q1_0_g128 native 1-bit (~1 GB) — GPU + PrismML fork</option>
-                    </select>
-
-                    <!-- GPU layers -->
-                    <label class="config-label" style="margin-top:10px;">
-                        GPU Layers <span style="opacity:0.5;font-size:0.8em;">(0 = CPU only)</span>
-                    </label>
-                    <input type="number" id="bonsai-gpu-layers" class="config-input"
-                        value="0" min="0" max="99" style="width:80px;">
-
-                    <!-- Download -->
-                    <div id="bonsai-download-section" style="margin-top:12px;">
-                        <div id="bonsai-progress-wrap" style="display:none; margin-bottom:8px;">
-                            <div class="progress-bar-bg">
-                                <div class="progress-bar-fill" id="bonsai-progress-fill" style="width:0%"></div>
-                            </div>
-                            <div id="bonsai-progress-label" style="font-size:0.78rem; opacity:0.7; margin-top:4px;"></div>
-                        </div>
-                        <button class="btn-bonsai-action" id="btn-download-bonsai"
-                            onclick="downloadBonsai()">⬇ Download Model</button>
-                        <button class="btn-bonsai-cancel" id="btn-cancel-download" style="display:none;"
-                            onclick="cancelBonsaiDownload()">✕ Cancel</button>
-                    </div>
-
-                    <!-- Server controls -->
-                    <div id="bonsai-server-section" style="margin-top:10px; display:none;">
-                        <button class="btn-bonsai-action" id="btn-start-bonsai"
-                            onclick="startBonsai()">▶ Start Server</button>
-                        <button class="btn-bonsai-stop" id="btn-stop-bonsai" style="display:none;"
-                            onclick="stopBonsai()">■ Stop Server</button>
-                    </div>
-
-                    <div id="bonsai-binary-warn" style="display:none;"
-                        class="bonsai-warn-box">
-                        ⚠ llama-server not found.<br>
-                        Run <code>python scripts/get_llama_server.py</code> or bundle it via
-                        <code>paramodus.spec</code>.
+                        <span id="bonsai-status-text">Setting up…</span>
                     </div>
                 </div>
             </div>
@@ -179,6 +136,19 @@
     <div id="checkpoint-sidebar">
         <div class="checkpoint-blocks" id="checkpoint-blocks">
             <!-- Blocks generated dynamically for each AI answer -->
+        </div>
+    </div>
+
+    <!-- First-run Bonsai setup overlay (shown during model download) -->
+    <div id="bonsai-setup-overlay">
+        <div class="setup-overlay-inner">
+            <div class="setup-leaf">🌿</div>
+            <h2 class="setup-heading">Setting up Bonsai AI</h2>
+            <p class="setup-sub">Downloading the model — this only happens once.<br>After this, Bonsai runs fully offline, forever.</p>
+            <div class="progress-bar-bg setup-progress-bar">
+                <div class="progress-bar-fill" id="setup-overlay-fill" style="width:0%"></div>
+            </div>
+            <div id="setup-overlay-label" class="setup-progress-label">Preparing…</div>
         </div>
     </div>
 

@@ -119,6 +119,47 @@ class ApiBridge:
         bonsai.stop_server()
         return {"status": "stopped"}
 
+    def begin_auto_setup(self, model_key: str = DEFAULT_MODEL) -> dict:
+        """
+        Zero-click Bonsai setup — called automatically by the frontend.
+        Chains: binary check → download (if needed) → server start.
+        All progress is reported back via onBonsaiSetupProgress(phase, pct, msg).
+        """
+        def _report(phase: str, pct: float, msg: str):
+            if self.window:
+                self.window.evaluate_js(
+                    f"onBonsaiSetupProgress({json.dumps(phase)}, {pct:.2f}, {json.dumps(msg)})"
+                )
+
+        def _worker():
+            # ── 1. Binary check ──────────────────────────────────────────────
+            if not bonsai._get_llama_server_path():
+                _report('error', -1,
+                    'llama-server not found — rebuild the exe with PyInstaller.')
+                return
+
+            # ── 2. Download model if not already on disk ─────────────────────
+            if not bonsai.is_model_downloaded(model_key):
+                def _dl_cb(pct: float, msg: str):
+                    _report('downloading', pct, msg)
+
+                ok = bonsai.download_model(model_key=model_key, progress_cb=_dl_cb)
+                if not ok:
+                    _report('error', -1, 'Download failed — check your connection.')
+                    return
+
+            # ── 3. Start server ──────────────────────────────────────────────
+            _report('starting', 0, 'Loading model into memory…')
+            ok = bonsai.start_server(model_key=model_key)
+            if ok:
+                _report('ready', 100, 'Bonsai is ready')
+            else:
+                _report('error', -1,
+                    'Server failed to start — check ~/.myapp/llama_server.log')
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return {"status": "started", "model_key": model_key}
+
     def set_model(self, model_id):
         self.current_model = model_id if model_id else None
         return f"Model set to {model_id if model_id else 'default'}"

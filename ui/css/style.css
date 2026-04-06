@@ -1063,3 +1063,63 @@ body {
     border-radius: 4px;
     font-size: 0.75rem;
 }
+
+/* ============================================================
+   BONSAI FIRST-RUN SETUP OVERLAY
+   Shown during the one-time model download (~4.6 GB).
+   Hidden by default; becomes visible by adding .visible class.
+   ============================================================ */
+
+#bonsai-setup-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(12, 8, 36, 0.97);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(6px);
+}
+
+#bonsai-setup-overlay.visible {
+    display: flex;
+}
+
+.setup-overlay-inner {
+    text-align: center;
+    max-width: 440px;
+    padding: 48px 32px;
+}
+
+.setup-leaf {
+    font-size: 3.5rem;
+    margin-bottom: 20px;
+    display: block;
+}
+
+.setup-heading {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+}
+
+.setup-sub {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.55);
+    margin: 0 0 28px;
+    line-height: 1.6;
+}
+
+.setup-progress-bar {
+    width: 100%;
+    height: 8px;
+    margin-bottom: 12px;
+}
+
+.setup-progress-label {
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.45);
+    letter-spacing: 0.01em;
+}
