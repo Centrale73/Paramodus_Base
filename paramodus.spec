@@ -47,12 +47,36 @@ if os.path.isdir(bin_dir):
     # Destination '.' = root of the _internal bundle folder
     extra_binaries = [(f, '.') for f in bin_files]
     for f in bin_files:
-        print(f'[paramodus.spec] Bundling {f}')
+        print(f'[paramodus.spec] Bundling binary: {f}')
 if not extra_binaries:
     print(
         '[paramodus.spec] WARNING: bin/ is empty or missing.\n'
         '  Run: python scripts/get_llama_server.py --local\n'
         '  The app will fall back to system PATH at runtime.'
+    )
+
+# ---------------------------------------------------------------------------
+# Model: Bonsai 8B GGUF (pre-bundled for zero-config out-of-box experience)
+# ---------------------------------------------------------------------------
+# Run scripts/download_model_for_bundle.py before building to populate ./models/.
+# The model is bundled into models/ inside the PyInstaller bundle so that
+# end users can chat immediately without downloading anything.
+#
+# manager.py resolves the model path as: sys._MEIPASS/models/Bonsai-8B.gguf
+
+models_dir   = 'models'
+extra_models = []  # list of (src, dest_in_bundle)
+if os.path.isdir(models_dir):
+    model_files = [f for f in glob.glob(os.path.join(models_dir, '*.gguf')) if os.path.isfile(f)]
+    extra_models = [(f, 'models') for f in model_files]
+    for f in model_files:
+        size_gb = os.path.getsize(f) / (1024 ** 3)
+        print(f'[paramodus.spec] Bundling model: {f}  ({size_gb:.2f} GB)')
+if not extra_models:
+    print(
+        '[paramodus.spec] WARNING: No .gguf model found in models/\n'
+        '  Run: python scripts/download_model_for_bundle.py\n'
+        '  Without a bundled model, the app will try to download it on first launch.'
     )
 
 # ---------------------------------------------------------------------------
@@ -72,6 +96,8 @@ a = Analysis(
         ('agents',      'agents'),
         # API bridge
         ('api',         'api'),
+        # Pre-bundled Bonsai GGUF model(s) — zero-config offline inference
+        *extra_models,
     ],
     hiddenimports=[
         # agno submodules loaded at runtime
@@ -149,6 +175,8 @@ coll = COLLECT(
         # are sensitive to binary modification
         'llama-server.exe',
         '*.onnx',
+        # GGUFs are already compressed internally; UPX would only inflate them
+        '*.gguf',
     ],
     name='Paramodus',
 )

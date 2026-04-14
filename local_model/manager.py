@@ -89,9 +89,9 @@ MODELS: dict[str, dict] = {
         "repo_id":     "prism-ml/Bonsai-8B-gguf",
         "filename":    "Bonsai-8B.gguf",
         "hf_url":      "https://huggingface.co/prism-ml/Bonsai-8B-gguf/resolve/main/Bonsai-8B.gguf",
-        "size_gb":     1.0,
+        "size_gb":     1.15,
         "quant":       "Q1_0_g128 (native 1-bit)",
-        "description": "Native 1-bit (~1 GB) — requires PrismML llama.cpp fork, GPU recommended.",
+        "description": "Native 1-bit (~1.15 GB) — bundled in exe, no download required.",
         "requires_prismml_fork": True,
     },
     "bonsai-8b-q4": {
@@ -108,7 +108,7 @@ MODELS: dict[str, dict] = {
     },
 }
 
-DEFAULT_MODEL   = "bonsai-8b-q4"   # Works with standard llama.cpp on any hardware
+DEFAULT_MODEL   = "bonsai-8b-native"   # Bundled in exe — zero-config for end users
 SERVER_HOST     = "127.0.0.1"
 SERVER_PORT     = 8080
 HEALTH_URL      = f"http://{SERVER_HOST}:{SERVER_PORT}/health"
@@ -174,7 +174,24 @@ class BonsaiManager:
     # ------------------------------------------------------------------
 
     def get_model_path(self, model_key: str = DEFAULT_MODEL) -> str:
-        return os.path.join(MODELS_DIR, MODELS[model_key]["filename"])
+        """
+        Resolve the path to the model GGUF file.
+
+        Search order:
+        1. PyInstaller bundle (sys._MEIPASS/models/) — present when running
+           from the compiled .exe.  This is where the pre-bundled model lives.
+        2. ~/.myapp/models/ — downloaded at runtime by the user.
+        """
+        filename = MODELS[model_key]["filename"]
+
+        # 1. Check inside the PyInstaller bundle first
+        if getattr(sys, "frozen", False):
+            bundle_path = os.path.join(sys._MEIPASS, "models", filename)
+            if os.path.isfile(bundle_path):
+                return bundle_path
+
+        # 2. Fall back to the user's app-data models directory
+        return os.path.join(MODELS_DIR, filename)
 
     def is_model_downloaded(self, model_key: str = DEFAULT_MODEL) -> bool:
         path = self.get_model_path(model_key)

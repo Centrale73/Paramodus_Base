@@ -1,20 +1,22 @@
 """
 scripts/get_llama_server.py
 ===========================
-Downloads a pre-built llama-server binary for the current platform from the
-official llama.cpp GitHub releases.
+Downloads a pre-built llama-server binary for the current platform.
 
 Usage
 -----
-    python scripts/get_llama_server.py              # installs to ~/.myapp/bin/
+    python scripts/get_llama_server.py              # installs to ~/.myapp/bin/ (PrismML fork)
     python scripts/get_llama_server.py --local      # installs to ./bin/ (for PyInstaller bundling)
-    python scripts/get_llama_server.py --prismml    # build PrismML fork instead (needs cmake)
+    python scripts/get_llama_server.py --standard   # use standard llama.cpp instead of PrismML fork
+    python scripts/get_llama_server.py --prismml    # build PrismML fork from source (needs cmake)
 
-For the Bonsai 8B native Q1_0_g128 format you need PrismML's fork:
-    https://github.com/PrismML-Eng/llama.cpp
-The --prismml flag will clone and build it locally (requires cmake + compiler).
+Default behaviour (no flags):
+    Downloads a pre-built PrismML llama.cpp release binary — the only binary
+    that supports the native Bonsai 8B Q1_0_g128 1-bit kernel.  No compiler
+    or cmake required.
 
-For the bartowski Q4_K_M variant, the standard llama.cpp binary works fine.
+For the bartowski Q4_K_M variant only, the standard llama.cpp binary works fine
+(use --standard in that case).
 
 After running this script, the binary is automatically detected by
 local_model/manager.py via ~/.myapp/bin/ (or PATH).
@@ -29,8 +31,9 @@ import zipfile
 
 import requests
 
-GITHUB_RELEASES_URL = "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
-PRISMML_REPO_URL    = "https://github.com/PrismML-Eng/llama.cpp.git"
+GITHUB_RELEASES_URL        = "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
+PRISMML_RELEASES_URL       = "https://api.github.com/repos/PrismML-Eng/llama.cpp/releases/latest"
+PRISMML_REPO_URL           = "https://github.com/PrismML-Eng/llama.cpp.git"
 
 APP_DATA_BIN = os.path.join(os.path.expanduser("~"), ".myapp", "bin")
 LOCAL_BIN    = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin")
@@ -207,6 +210,132 @@ def download_standard_binary(dest_dir: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# PrismML pre-built release download (no cmake needed)
+# ---------------------------------------------------------------------------
+
+def _find_prismml_release_asset(assets: list[dict]) -> tuple[str, str]:
+    """
+    Pick the best PrismML release asset for the current platform.
+
+    PrismML release naming conventions:
+      Windows CPU:  llama-bin-win-cpu-x64.zip / llama-bin-win-cpu-arm64.zip
+      Windows CUDA: llama-prism-b1-*-bin-win-cuda-12.4-x64.zip
+      macOS ARM64:  llama-prism-*-bin-macos-arm64.tar.gz
+      macOS x64:    llama-prism-*-bin-macos-x64.tar.gz
+      Linux x64:    llama-prism-*-bin-ubuntu-x64.tar.gz
+      Linux ARM64:  llama-prism-*-bin-ubuntu-arm64.tar.gz
+
+    Preference order: CUDA > Vulkan > CPU (so GPU users get acceleration).
+    Falls back to CPU build if no GPU-specific asset matches.
+    """
+    system  = platform.system()
+    machine = platform.machine().lower()
+    is_arm  = "arm" in machine or "aarch64" in machine
+
+    # Check for CUDA availability
+    has_cuda = shutil.which("nvcc") is not None
+
+    def _score(name: str) -> int:
+        n = name.lower()
+        score = 0
+
+        # Skip CUDA runtime DLL-only packs
+        if n.startswith("cudart"):
+            return -100
+        # Skip source archives
+        if "xcframework" in n or n.endswith(".tar.gz.sha256") or n.endswith(".zip.sha256"):
+            return -100
+
+        if system == "Windows":
+            # Must be a zip
+            if not n.endswith(".zip"):
+                return 0
+            score += 10
+
+            # Architecture
+            if is_arm:
+                if "arm64" in n:  score += 8
+                else:             score -= 20
+            else:
+                if "x64" in n:   score += 8
+                if "arm64" in n: score -= 20
+
+            # GPU vs CPU
+            if has_cuda and "cuda" in n:  score += 6
+            elif "cpu" in n:              score += 4
+            elif "vulkan" in n:           score += 3
+
+        elif system == "Linux":
+            if not n.endswith(".tar.gz"):
+                return 0
+            # Must be ubuntu/linux build (not macOS)
+            if not ("ubuntu" in n or "linux" in n):
+                return 0
+            score += 10
+
+            if is_arm:
+                if "arm64" in n or "aarch64" in n: score += 5
+            else:
+                if "x64" in n or "amd64" in n:    score += 5
+
+            if has_cuda and "cuda" in n:  score += 6
+            elif "vulkan" in n:           score += 3
+            elif not ("cuda" in n or "vulkan" in n or "rocm" in n): score += 2  # plain CPU build
+
+        elif system == "Darwin":
+            if not n.endswith(".tar.gz"):
+                return 0
+            if "macos" not in n:
+                return 0
+            score += 10
+            if is_arm and "arm64" in n:      score += 5
+            elif not is_arm and "x64" in n:  score += 5
+            # Prefer KleidiAI build on Apple Silicon (faster Q1 kernels)
+            if is_arm and "kleidiai" in n:   score += 2
+
+        return score
+
+    ranked = sorted(assets, key=lambda a: _score(a["name"]), reverse=True)
+    if not ranked or _score(ranked[0]["name"]) <= 0:
+        raise RuntimeError(
+            f"No compatible PrismML binary found for {system}/{machine}.\n"
+            "Visit https://github.com/PrismML-Eng/llama.cpp/releases to download manually."
+        )
+    best = ranked[0]
+    return best["browser_download_url"], best["name"]
+
+
+def download_prismml_binary(dest_dir: str) -> str:
+    """
+    Download a pre-built PrismML llama.cpp binary from GitHub releases.
+    This is the recommended path: no cmake, no compiler, no git-clone needed.
+    Required for native Bonsai 8B Q1_0_g128 1-bit kernel support.
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+
+    print("Fetching latest PrismML llama.cpp release info from GitHub…")
+    resp = requests.get(PRISMML_RELEASES_URL, timeout=15)
+    resp.raise_for_status()
+    data   = resp.json()
+    tag    = data["tag_name"]
+    assets = data["assets"]
+
+    print(f"Latest PrismML release: {tag}")
+    url, filename = _find_prismml_release_asset(assets)
+    print(f"Downloading {filename}…")
+
+    archive_path = os.path.join(dest_dir, filename)
+    _download_file(url, archive_path)
+
+    print("Extracting llama-server…")
+    binary_path = _extract_server_binary(archive_path, dest_dir)
+
+    os.remove(archive_path)
+    print(f"✓ PrismML llama-server installed at {binary_path}")
+    return binary_path
+
+
+# ---------------------------------------------------------------------------
 # PrismML fork (build from source)
 # ---------------------------------------------------------------------------
 
@@ -287,6 +416,11 @@ if __name__ == "__main__":
         help="Install to ./bin/ (for PyInstaller bundling) instead of ~/.myapp/bin/",
     )
     parser.add_argument(
+        "--standard",
+        action="store_true",
+        help="Download standard llama.cpp binary instead of PrismML fork (only for Q4_K_M variant).",
+    )
+    parser.add_argument(
         "--prismml",
         action="store_true",
         help=(
@@ -300,9 +434,15 @@ if __name__ == "__main__":
 
     try:
         if args.prismml:
+            # Build from source (cmake required)
             path = build_prismml_binary(dest_dir)
-        else:
+        elif args.standard:
+            # Standard llama.cpp release (only works with Q4_K_M unpacked model)
             path = download_standard_binary(dest_dir)
+        else:
+            # Default: download PrismML pre-built release (no cmake needed)
+            # Required for native Bonsai 8B Q1_0_g128 1-bit kernel
+            path = download_prismml_binary(dest_dir)
 
         print()
         print("Done.  Paramodus will automatically detect the binary at:")
