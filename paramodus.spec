@@ -20,8 +20,10 @@
 # 2. Build the exe:
 #      pyinstaller paramodus.spec
 #
-# 3. Distribute the dist/Paramodus/ folder.  The model (~1-4.6 GB) downloads
-#    to %USERPROFILE%\.myapp\models\ on first use — NOT bundled in the exe.
+# 3. Run: python scripts/download_model_for_bundle.py  (one-time, ~1.15 GB)
+# 4. Build the exe:  pyinstaller paramodus.spec
+#    The model is bundled into _internal/models/ — users get instant chat,
+#    no download required.  Falls back to %USERPROFILE%\.myapp\models\ if missing.
 #
 # =============================================================================
 
