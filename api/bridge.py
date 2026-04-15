@@ -106,7 +106,10 @@ class ApiBridge:
         Calls onBonsaiServerReady(true/false) on the frontend when done.
         """
         def _worker():
-            ok = bonsai.start_server(model_key=model_key, n_gpu_layers=n_gpu_layers)
+            # n_gpu_layers=None triggers auto-detection in BonsaiManager._detect_gpu()
+            # The n_gpu_layers param from the UI is used only if explicitly != -1
+            effective_ngl = n_gpu_layers if n_gpu_layers >= 0 else None
+            ok = bonsai.start_server(model_key=model_key, n_gpu_layers=effective_ngl)
             if self.window:
                 self.window.evaluate_js(f"onBonsaiServerReady({'true' if ok else 'false'})")
 
@@ -150,7 +153,17 @@ class ApiBridge:
 
             # ── 3. Start server ──────────────────────────────────────────────
             _report('starting', 0, 'Loading model into memory…')
-            ok = bonsai.start_server(model_key=model_key)
+
+            # Feed live stdout lines from llama-server to the UI overlay so
+            # users see real progress (layer counts, tensor loading, etc.)
+            def _server_line_cb(line: str) -> None:
+                # Only forward lines that look like meaningful load progress;
+                # skip empty lines and very short ones
+                stripped = line.strip()
+                if len(stripped) > 5:
+                    _report('starting', 0, stripped[:90])
+
+            ok = bonsai.start_server(model_key=model_key, status_cb=_server_line_cb)
             if ok:
                 _report('ready', 100, 'Bonsai is ready')
             else:

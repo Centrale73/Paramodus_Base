@@ -28,6 +28,7 @@ For the .exe distribution, bundle llama-server.exe via paramodus.spec:
   binaries=[('bin/llama-server.exe', '.')]
 """
 
+import atexit
 import os
 import sys
 import shutil
@@ -317,24 +318,70 @@ class BonsaiManager:
         except Exception:
             return False
 
+    @staticmethod
+    def _detect_gpu() -> int:
+        """
+        Return the recommended n_gpu_layers value for this machine.
+
+        - NVIDIA (CUDA): 99  (full offload; driver query via nvidia-smi)
+        - Apple Silicon (Metal): 99  (llama-server uses Metal automatically)
+        - AMD / other GPU:  99  (Vulkan path; llama-server detects it)
+        - CPU-only fallback: 0
+
+        We default to full offload (99) whenever a GPU is plausibly present
+        because llama-server itself won't crash if the GPU can't hold all
+        layers — it simply overflows to CPU.  The user can always override
+        by passing n_gpu_layers explicitly.
+        """
+        # ── NVIDIA via nvidia-smi ────────────────────────────────────────────
+        if shutil.which("nvidia-smi"):
+            try:
+                out = subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    timeout=5, stderr=subprocess.DEVNULL,
+                ).decode().strip()
+                if out:
+                    print(f"[BonsaiManager] NVIDIA GPU detected: {out.splitlines()[0]} — using -ngl 99")
+                    return 99
+            except Exception:
+                pass
+
+        # ── Apple Silicon (always has Metal GPU) ─────────────────────────────
+        if sys.platform == "darwin":
+            import platform as _platform
+            if "arm" in _platform.machine().lower():
+                print("[BonsaiManager] Apple Silicon detected — using -ngl 99 (Metal)")
+                return 99
+
+        # ── CPU-only fallback ────────────────────────────────────────────────
+        print("[BonsaiManager] No discrete GPU detected — running on CPU (-ngl 0)")
+        return 0
+
     def start_server(
         self,
-        model_key:      str = DEFAULT_MODEL,
-        n_gpu_layers:   int = 0,
-        context_length: int = 4096,
-        timeout_s:      int = 360,
+        model_key:      str           = DEFAULT_MODEL,
+        n_gpu_layers:   Optional[int] = None,
+        context_length: int           = 4096,
+        timeout_s:      int           = 360,
+        status_cb:      Optional[Callable[[str], None]] = None,
     ) -> bool:
         """
         Start llama-server as a background subprocess.
 
         Parameters
         ----------
-        model_key      : Which model variant to load
-        n_gpu_layers   : GPU layers to offload (0 = CPU only, 99 = full GPU)
-        context_length : Context window in tokens
-        timeout_s      : Max seconds to wait for the server to become ready
+        model_key      : Which model variant to load.
+        n_gpu_layers   : GPU layers to offload.  Pass None (default) to
+                         auto-detect the best value for this machine.
+                         Pass 0 to force CPU-only, 99 for full GPU.
+        context_length : Context window in tokens.
+        timeout_s      : Hard timeout in seconds (safety net — normally the
+                         stdout reader detects readiness in seconds, not minutes).
+        status_cb      : Optional callback(line: str) called for every stdout
+                         line emitted by the server during startup.  Useful
+                         for live progress in the UI without polling.
 
-        Returns True when the /health endpoint responds 200.
+        Returns True once the server reports it is listening.
         """
         with self._server_lock:
             if self.is_server_running():
@@ -367,6 +414,10 @@ class BonsaiManager:
                 print(f"[BonsaiManager] Model not found at {model_path} — download it first.")
                 return False
 
+            # Auto-detect GPU if not explicitly specified
+            if n_gpu_layers is None:
+                n_gpu_layers = self._detect_gpu()
+
             cmd = [
                 llama_bin,
                 "--model",    model_path,
@@ -375,39 +426,106 @@ class BonsaiManager:
                 "--ctx-size", str(context_length),
                 "-ngl",       str(n_gpu_layers),
                 # NOTE: do NOT pass --no-mmap here.
-                # --no-mmap forces the entire GGUF (~4.6 GB) into physical RAM
-                # at startup, which is slow and can fail on memory-constrained
-                # machines.  The default (mmap) reads pages on demand and is
-                # both faster to start and easier on RAM.
+                # --no-mmap forces the entire GGUF into physical RAM at startup,
+                # which is slow and can fail on memory-constrained machines.
+                # The default (mmap) reads pages on demand — faster start, less RAM.
             ]
 
             log_path = os.path.join(APP_DATA, "llama_server.log")
-            log_fh   = open(log_path, "a", buffering=1)
 
-            extra_kwargs = {}
+            # Hide the console window on Windows (matches your standalone app)
+            startupinfo = None
+            extra_kwargs: dict = {}
             if sys.platform == "win32":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                extra_kwargs["startupinfo"] = startupinfo
+                # CREATE_NO_WINDOW is belt-and-suspenders: ensures no window
+                # even if STARTF_USESHOWWINDOW is ignored in some contexts
                 extra_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
             self._process = subprocess.Popen(
                 cmd,
-                stdout=log_fh,
-                stderr=log_fh,
+                stdout=subprocess.PIPE,   # capture so we can line-read for readiness
+                stderr=subprocess.STDOUT, # merge stderr → stdout (same as your standalone)
+                text=True,
+                bufsize=1,                # line-buffered
                 **extra_kwargs,
             )
             self._active_model_key = model_key
-            print(f"[BonsaiManager] Started llama-server (pid={self._process.pid})")
+            atexit.register(self.stop_server)  # extra safety net in case app.py's atexit fires late
+            print(f"[BonsaiManager] Started llama-server pid={self._process.pid} "
+                  f"model={model_key} ngl={n_gpu_layers}")
 
-        # Poll outside the lock so other threads can query status
-        for _ in range(timeout_s):
-            time.sleep(1)
-            if self._process.poll() is not None:
-                print("[BonsaiManager] llama-server exited unexpectedly — check ~/.myapp/llama_server.log")
+        # ── Readiness detection via stdout line-reader ───────────────────────
+        # This mirrors your standalone app exactly.
+        # We read stdout line-by-line in the calling thread (which is already
+        # a background thread in begin_auto_setup / start_bonsai).
+        # The log file is written in parallel by a drain thread.
+        ready    = threading.Event()
+        deadline = time.monotonic() + timeout_s
+        crashed  = threading.Event()
+
+        def _drain_and_detect(proc: subprocess.Popen, log: str) -> None:
+            """
+            Read every line from the server's stdout.
+            - Writes each line to the log file.
+            - Fires status_cb for live UI feedback.
+            - Sets 'ready' when the listening message appears.
+            - Sets 'crashed' if the process exits before becoming ready.
+            """
+            READY_MARKER  = "server is listening on"
+            ERROR_MARKER  = "HTTP server error"
+
+            try:
+                with open(log, "a", buffering=1) as lf:
+                    for line in proc.stdout:
+                        lf.write(line)
+                        lf.flush()
+                        stripped = line.rstrip()
+                        print(f"[llama-server] {stripped}")
+
+                        if status_cb:
+                            try:
+                                status_cb(stripped)
+                            except Exception:
+                                pass
+
+                        if READY_MARKER in line:
+                            ready.set()
+                            # Keep draining stdout after ready so the pipe
+                            # doesn't block the server process
+                        elif ERROR_MARKER in line:
+                            print(f"[BonsaiManager] Server reported error: {stripped}")
+                            crashed.set()
+                            return
+            except Exception as exc:
+                print(f"[BonsaiManager] stdout drain error: {exc}")
+            finally:
+                # stdout closed = process exited
+                if not ready.is_set():
+                    crashed.set()
+
+        drain_thread = threading.Thread(
+            target=_drain_and_detect,
+            args=(self._process, log_path),
+            daemon=True,
+        )
+        drain_thread.start()
+
+        # Wait for ready or crash, respecting the hard deadline
+        while not ready.is_set() and not crashed.is_set():
+            if time.monotonic() > deadline:
+                print("[BonsaiManager] Timed out waiting for server to become ready.")
+                self.stop_server()
                 return False
-            if self.is_server_running():
-                print(f"[BonsaiManager] Server ready at http://{SERVER_HOST}:{SERVER_PORT}/v1")
-                return True
+            time.sleep(0.1)  # 100 ms tick — much tighter than the old 1 s poll
 
-        print("[BonsaiManager] Timed out waiting for server to become ready.")
+        if ready.is_set():
+            print(f"[BonsaiManager] Server ready at http://{SERVER_HOST}:{SERVER_PORT}/v1")
+            return True
+
+        print("[BonsaiManager] llama-server exited unexpectedly — check ~/.myapp/llama_server.log")
         return False
 
     def stop_server(self) -> None:
