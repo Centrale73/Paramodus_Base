@@ -35,7 +35,13 @@ def _find_iscc() -> str | None:
         return result
 
     # 2. Default Inno Setup 6 install paths
+    # Inno Setup can be installed per-user (AppData\Local) or system-wide
+    local_appdata = os.environ.get("LOCALAPPDATA", "")
     candidates = [
+        # Per-user install (default when installed without admin rights)
+        os.path.join(local_appdata, "Programs", "Inno Setup 6", "ISCC.exe"),
+        os.path.join(local_appdata, "Programs", "Inno Setup 5", "ISCC.exe"),
+        # System-wide installs
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         r"C:\Program Files\Inno Setup 6\ISCC.exe",
         r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe",
