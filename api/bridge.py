@@ -3,9 +3,26 @@ import threading
 import json
 import base64
 import uuid
-from agents.workspace_agent import get_agent, ingest_files, clear_knowledge_base
-from database import save_msg, get_history, clear_session, get_all_sessions
+# NOTE: workspace_agent and database are NOT imported at module level.
+# They pull in agno, fastembed, lancedb, and torch — on a PyInstaller frozen
+# exe this can take 20-60 s as hundreds of .pyc files are decompressed from
+# _MEIPASS.  Importing them here would block the main thread and make the
+# window appear frozen before it even renders.
+# Instead, they are imported lazily inside the methods that need them,
+# by which point the background init thread in app.py has already loaded them.
 from local_model.manager import bonsai, DEFAULT_MODEL
+
+
+def _agent_module():
+    """Lazy import of workspace_agent — safe to call from any thread."""
+    from agents import workspace_agent
+    return workspace_agent
+
+
+def _db_module():
+    """Lazy import of database functions."""
+    from database import save_msg, get_history, clear_session, get_all_sessions
+    return save_msg, get_history, clear_session, get_all_sessions
 
 class ApiBridge:
     def __init__(self):
@@ -41,6 +58,7 @@ class ApiBridge:
 
     def list_sessions(self):
         """Retrieve list of all sessions."""
+        _, get_history, _, get_all_sessions = _db_module()
         return get_all_sessions()
 
     def switch_session(self, session_id):
@@ -182,10 +200,11 @@ class ApiBridge:
         return f"Multi-Agent mode: {'Enabled' if enabled else 'Disabled'}"
 
     def load_history(self):
+        _, get_history, _, _ = _db_module()
         return get_history(self.current_session_id)
 
     def clear_rag_context(self):
-        clear_knowledge_base()
+        _agent_module().clear_knowledge_base()
         self.uploaded_filenames = []
         return "RAG context cleared"
 
@@ -203,7 +222,7 @@ class ApiBridge:
                 self.uploaded_filenames.append(name)
             
             # Use the global ingestion function from workspace_agent
-            success = ingest_files(processed_files)
+            success = _agent_module().ingest_files(processed_files)
             if success:
                 return {"status": "success", "files": list(set(self.uploaded_filenames))}
             return {"status": "error", "message": "Failed to ingest files"}
@@ -217,6 +236,7 @@ class ApiBridge:
             return
          
         if not target_id:
+            save_msg, _, _, _ = _db_module()
             save_msg("user", user_text, self.current_session_id)
 
         thread = threading.Thread(target=self._run_logic, args=(user_text, target_id))
@@ -235,7 +255,7 @@ class ApiBridge:
             api_key = self.keys.get(provider)
             model_id = self.current_model
             
-            agent = get_agent(
+            agent = _agent_module().get_agent(
                 provider=provider, 
                 api_key=api_key, 
                 model_id=model_id, 
@@ -254,6 +274,7 @@ class ApiBridge:
                     full_response += content
                     self.window.evaluate_js(f"receiveChunk({json.dumps(content)}, '{target_id or ''}')")
 
+            save_msg, _, _, _ = _db_module()
             save_msg("bot", full_response, self.current_session_id)
             
             # GenUI: Detect tone from response
