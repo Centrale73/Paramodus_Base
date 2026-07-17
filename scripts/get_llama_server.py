@@ -40,6 +40,82 @@ LOCAL_BIN    = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 
 
 # ---------------------------------------------------------------------------
+# GPU detection helpers (used at asset-selection time)
+# ---------------------------------------------------------------------------
+
+def _has_nvidia() -> bool:
+    """
+    Detect NVIDIA GPU using nvidia-smi (present on any machine with a driver,
+    not just developer machines that have the CUDA toolkit / nvcc).
+    """
+    if shutil.which("nvidia-smi"):
+        try:
+            import subprocess
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                timeout=5, stderr=subprocess.DEVNULL,
+            ).decode().strip()
+            if out:
+                print(f"[get_llama_server] NVIDIA GPU detected: {out.splitlines()[0]}")
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _has_vulkan() -> bool:
+    """
+    Detect any Vulkan-capable GPU (covers AMD, Intel Arc, older NVIDIA without
+    CUDA drivers, and Apple via MoltenVK).
+    Uses vulkaninfo if present; falls back to checking for AMD driver files
+    on Windows where vulkaninfo is often absent.
+    """
+    # vulkaninfo is shipped with Vulkan SDK and most Linux GPU drivers
+    if shutil.which("vulkaninfo"):
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["vulkaninfo", "--summary"],
+                capture_output=True, text=True, timeout=8,
+            )
+            if result.returncode == 0 and "GPU" in result.stdout:
+                print("[get_llama_server] Vulkan GPU detected via vulkaninfo")
+                return True
+        except Exception:
+            pass
+
+    # Windows fallback: check for AMD/Intel Vulkan ICD registry files
+    if sys.platform == "win32":
+        import winreg
+        vulkan_reg_paths = [
+            r"SOFTWARE\Khronos\Vulkan\Drivers",
+            r"SOFTWARE\WOW6432Node\Khronos\Vulkan\Drivers",
+        ]
+        for reg_path in vulkan_reg_paths:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path)
+                winreg.CloseKey(key)
+                print("[get_llama_server] Vulkan ICD registry entry found — Vulkan GPU present")
+                return True
+            except OSError:
+                pass
+
+    # Linux fallback: check for AMD/Intel ICD files
+    if sys.platform == "linux":
+        icd_dirs = [
+            "/usr/share/vulkan/icd.d",
+            "/etc/vulkan/icd.d",
+            os.path.expanduser("~/.local/share/vulkan/icd.d"),
+        ]
+        for d in icd_dirs:
+            if os.path.isdir(d) and os.listdir(d):
+                print(f"[get_llama_server] Vulkan ICD found in {d}")
+                return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Standard llama.cpp release
 # ---------------------------------------------------------------------------
 
@@ -61,18 +137,14 @@ def _find_release_asset(assets: list[dict]) -> tuple[str, str]:
         n = name.lower()
         score = 0
 
-        # "cudart-" packages are CUDA runtime DLL packs only — no server binary.
-        # They must never be selected regardless of platform.
         if n.startswith("cudart"):
             return -100
 
         if system == "Windows":
-            # Must be a llama main binary zip
             if not (n.startswith("llama-") and "bin" in n and "win" in n and n.endswith(".zip")):
                 return 0
             score += 10
 
-            # Architecture — critical: wrong arch = Machine Type Mismatch crash
             if is_arm:
                 if "arm64" in n:  score += 8
                 else:             score -= 20
@@ -80,12 +152,10 @@ def _find_release_asset(assets: list[dict]) -> tuple[str, str]:
                 if "x64" in n:   score += 8
                 if "arm64" in n: score -= 20
 
-            # Prefer CPU-only build (broadest hardware compatibility, no GPU drivers needed)
             if "cpu" in n:                          score += 4
             elif "cuda" in n or "vulkan" in n or "hip" in n or "sycl" in n:
-                score -= 2   # deprioritise GPU-specific builds
+                score -= 2
 
-            # Legacy AVX scoring (for older release naming that had avx2 in name)
             if "avx2" in n:   score += 2
             elif "avx" in n:  score += 1
 
@@ -148,9 +218,8 @@ def _extract_server_binary(archive_path: str, dest_dir: str) -> str:
         with zipfile.ZipFile(archive_path) as z:
             for member in z.namelist():
                 base = os.path.basename(member)
-                if not base:          # skip directory entries
+                if not base:
                     continue
-                # Extract the server exe and every DLL in the archive
                 is_server = (base == exe_name)
                 is_dll    = base.lower().endswith(".dll")
                 if is_server or is_dll:
@@ -225,34 +294,32 @@ def _find_prismml_release_asset(assets: list[dict]) -> tuple[str, str]:
       Linux x64:    llama-prism-*-bin-ubuntu-x64.tar.gz
       Linux ARM64:  llama-prism-*-bin-ubuntu-arm64.tar.gz
 
-    Preference order: CUDA > Vulkan > CPU (so GPU users get acceleration).
-    Falls back to CPU build if no GPU-specific asset matches.
+    GPU preference order:
+      NVIDIA CUDA (detected via nvidia-smi) > Vulkan (AMD/Intel/other)
+      > CPU-only fallback.
     """
     system  = platform.system()
     machine = platform.machine().lower()
     is_arm  = "arm" in machine or "aarch64" in machine
 
-    # Check for CUDA availability
-    has_cuda = shutil.which("nvcc") is not None
+    # Detect available GPU acceleration once, before scoring
+    has_nvidia = _has_nvidia()
+    has_vulkan = _has_vulkan() if not has_nvidia else False  # no need to check both
 
     def _score(name: str) -> int:
         n = name.lower()
         score = 0
 
-        # Skip CUDA runtime DLL-only packs
         if n.startswith("cudart"):
             return -100
-        # Skip source archives
         if "xcframework" in n or n.endswith(".tar.gz.sha256") or n.endswith(".zip.sha256"):
             return -100
 
         if system == "Windows":
-            # Must be a zip
             if not n.endswith(".zip"):
                 return 0
             score += 10
 
-            # Architecture
             if is_arm:
                 if "arm64" in n:  score += 8
                 else:             score -= 20
@@ -260,15 +327,14 @@ def _find_prismml_release_asset(assets: list[dict]) -> tuple[str, str]:
                 if "x64" in n:   score += 8
                 if "arm64" in n: score -= 20
 
-            # GPU vs CPU
-            if has_cuda and "cuda" in n:  score += 6
-            elif "cpu" in n:              score += 4
-            elif "vulkan" in n:           score += 3
+            # GPU preference: CUDA > Vulkan > CPU
+            if has_nvidia and "cuda" in n:   score += 6
+            elif has_vulkan and "vulkan" in n: score += 5
+            elif "cpu" in n:                  score += 4
 
         elif system == "Linux":
             if not n.endswith(".tar.gz"):
                 return 0
-            # Must be ubuntu/linux build (not macOS)
             if not ("ubuntu" in n or "linux" in n):
                 return 0
             score += 10
@@ -278,9 +344,10 @@ def _find_prismml_release_asset(assets: list[dict]) -> tuple[str, str]:
             else:
                 if "x64" in n or "amd64" in n:    score += 5
 
-            if has_cuda and "cuda" in n:  score += 6
-            elif "vulkan" in n:           score += 3
-            elif not ("cuda" in n or "vulkan" in n or "rocm" in n): score += 2  # plain CPU build
+            # GPU preference: CUDA > Vulkan > CPU
+            if has_nvidia and "cuda" in n:    score += 6
+            elif has_vulkan and "vulkan" in n: score += 5
+            elif not ("cuda" in n or "vulkan" in n or "rocm" in n): score += 2
 
         elif system == "Darwin":
             if not n.endswith(".tar.gz"):
@@ -290,8 +357,7 @@ def _find_prismml_release_asset(assets: list[dict]) -> tuple[str, str]:
             score += 10
             if is_arm and "arm64" in n:      score += 5
             elif not is_arm and "x64" in n:  score += 5
-            # Prefer KleidiAI build on Apple Silicon (faster Q1 kernels)
-            if is_arm and "kleidiai" in n:   score += 2
+            # Metal is always used on Apple Silicon — no explicit GPU flag needed
 
         return score
 
@@ -356,14 +422,13 @@ def build_prismml_binary(dest_dir: str) -> str:
         check=True
     )
 
-    # Detect CUDA
-    has_cuda = shutil.which("nvcc") is not None
+    has_nvidia = _has_nvidia()
     cmake_args = ["-B", "build"]
-    if has_cuda:
+    if has_nvidia:
         cmake_args += ["-DGGML_CUDA=ON"]
-        print("CUDA detected — building with GPU support.")
+        print("NVIDIA GPU detected — building with CUDA support.")
     else:
-        print("No CUDA detected — building CPU-only binary.")
+        print("No NVIDIA GPU detected — building CPU-only binary.")
 
     print("Running cmake configure…")
     subprocess.run(["cmake"] + cmake_args, check=True, cwd=build_dir)
@@ -378,7 +443,6 @@ def build_prismml_binary(dest_dir: str) -> str:
     exe_name   = "llama-server.exe" if sys.platform == "win32" else "llama-server"
     built_path = None
 
-    # Locate the binary in common build output locations
     for candidate_rel in [
         os.path.join("build", "bin", "Release", exe_name),
         os.path.join("build", "bin", exe_name),
@@ -434,14 +498,10 @@ if __name__ == "__main__":
 
     try:
         if args.prismml:
-            # Build from source (cmake required)
             path = build_prismml_binary(dest_dir)
         elif args.standard:
-            # Standard llama.cpp release (only works with Q4_K_M unpacked model)
             path = download_standard_binary(dest_dir)
         else:
-            # Default: download PrismML pre-built release (no cmake needed)
-            # Required for native Bonsai 8B Q1_0_g128 1-bit kernel
             path = download_prismml_binary(dest_dir)
 
         print()
