@@ -124,6 +124,7 @@ a = Analysis(
         'tantivy',
         # Standard libs used at runtime
         'sqlite3',
+        'paths',
         'email',
         'html',
         'http',

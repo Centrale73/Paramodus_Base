@@ -4,7 +4,8 @@ Shared fixtures for Paramodus integration tests.
 Strategy
 --------
 The production module (agents.workspace_agent) creates a module-level
-Knowledge singleton at import time, pointing at ~/.myapp/lancedb.  We
+Knowledge singleton at import time, pointing at the app-data lancedb dir
+(%APPDATA%\\Paramodus on Windows).  We
 cannot let tests touch that path, so every test that exercises the RAG
 service functions receives an *isolated* Knowledge instance backed by a
 throwaway temp directory, and the module-level singleton is monkey-patched
@@ -12,7 +13,7 @@ for the duration of the test.
 
 This means:
   - No cross-test pollution (each test gets a fresh LanceDb table).
-  - No ~/.myapp writes during CI.
+  - No app-data writes during CI.
   - Tests run fully offline (FastEmbed model weights are cached after the
     first download).
 

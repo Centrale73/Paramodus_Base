@@ -5,7 +5,7 @@ Downloads a pre-built llama-server binary for the current platform.
 
 Usage
 -----
-    python scripts/get_llama_server.py              # installs to ~/.myapp/bin/ (PrismML fork)
+    python scripts/get_llama_server.py              # installs to <app_data>/bin/ (PrismML fork)
     python scripts/get_llama_server.py --local      # installs to ./bin/ (for PyInstaller bundling)
     python scripts/get_llama_server.py --standard   # use standard llama.cpp instead of PrismML fork
     python scripts/get_llama_server.py --prismml    # build PrismML fork from source (needs cmake)
@@ -19,7 +19,7 @@ For the bartowski Q4_K_M variant only, the standard llama.cpp binary works fine
 (use --standard in that case).
 
 After running this script, the binary is automatically detected by
-local_model/manager.py via ~/.myapp/bin/ (or PATH).
+local_model/manager.py via <app_data>/bin/ (or PATH).
 """
 
 import argparse
@@ -31,11 +31,16 @@ import zipfile
 
 import requests
 
+# Make repo root importable so we can share the path resolver.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+from paths import get_app_data_dir
+
 GITHUB_RELEASES_URL        = "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
 PRISMML_RELEASES_URL       = "https://api.github.com/repos/PrismML-Eng/llama.cpp/releases/latest"
 PRISMML_REPO_URL           = "https://github.com/PrismML-Eng/llama.cpp.git"
 
-APP_DATA_BIN = os.path.join(os.path.expanduser("~"), ".myapp", "bin")
+APP_DATA_BIN = os.path.join(get_app_data_dir(), "bin")
 LOCAL_BIN    = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin")
 
 
@@ -477,7 +482,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--local",
         action="store_true",
-        help="Install to ./bin/ (for PyInstaller bundling) instead of ~/.myapp/bin/",
+        help="Install to ./bin/ (for PyInstaller bundling) instead of <app_data>/bin/",
     )
     parser.add_argument(
         "--standard",

@@ -203,7 +203,7 @@ class ApiBridge:
                 _report('ready', 100, 'Bonsai is ready')
             else:
                 _report('error', -1,
-                    'Server failed to start — check ~/.myapp/llama_server.log')
+                    'Server failed to start — check llama_server.log in the Paramodus app-data folder.')
 
         threading.Thread(target=_worker, daemon=True).start()
         return {"status": "started", "model_key": model_key}

@@ -22,7 +22,7 @@ Built with **Agno** (formerly PhiData) and **pywebview**, it runs locally as a n
     *   Spreadsheets (`.csv`)
     *   Code & Text (`.txt`, `.md`, `.py`, `.js`, `.json`)
 *   **Persistent Memory**:
-    *   **Smart History**: Conversations are saved to a local SQLite database (`~/.myapp/memory.db`).
+    *   **Smart History**: Conversations are saved to a local SQLite database in your OS app-data folder (`%APPDATA%\Paramodus` on Windows).
     *   **User Memories**: The agent learns and remembers details about you across sessions.
 *   **Desktop Native**: Lightweight windowed experience with real-time streaming and markdown rendering.
 
@@ -83,7 +83,7 @@ python app.py
 ```
 
 ### Managing Knowledge (RAG)
-The application creates a local folder at `~/.myapp/lancedb` to store your vectorized documents.
+The application creates a local `lancedb` folder in your OS app-data directory (`%APPDATA%\Paramodus` on Windows, `~/Library/Application Support/Paramodus` on macOS, `~/.local/share/Paramodus` on Linux) to store your vectorized documents.
 *   **Ingest**: Use the UI to select files (PDF, code, CSV). The system automatically chunks and embeds them using `BAAI/bge-small-en-v1.5` (running locally).
 *   **Chat**: Once ingested, simply ask questions about your documents. The agent automatically retrieves relevant context.
 

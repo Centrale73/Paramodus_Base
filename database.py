@@ -1,7 +1,8 @@
 import os
 import sqlite3
 
-app_data = os.path.join(os.path.expanduser("~"), ".myapp")
+from paths import get_app_data_dir
+app_data = get_app_data_dir()
 os.makedirs(app_data, exist_ok=True)
 
 DB_PATH = os.path.join(app_data, "chat_history.db")
