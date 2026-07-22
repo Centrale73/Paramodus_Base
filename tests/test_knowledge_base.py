@@ -10,7 +10,7 @@ Covers
   get_knowledge_stats   — row count and status reporting
 
 Each test works against an isolated LanceDb fixture (see conftest.py) so
-the production ~/.myapp directory is never touched and tests are safe to
+the production app-data directory is never touched and tests are safe to
 run in CI without any API keys.
 
 Regression guard

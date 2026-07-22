@@ -21,8 +21,9 @@ import os
 import tempfile
 from typing import List, Dict, Optional
 
-# Use absolute path for .exe persistence
-app_data = os.path.join(os.path.expanduser("~"), ".myapp")
+from paths import get_app_data_dir
+# Use platform app-data dir for .exe persistence (%APPDATA%\Paramodus on Windows)
+app_data = get_app_data_dir()
 os.makedirs(app_data, exist_ok=True)
 
 # Local SQLite for memory/sessions (FREE)

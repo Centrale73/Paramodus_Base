@@ -14,14 +14,15 @@ variants relevant to Paramodus:
     Unpacked re-quantization by bartowski.  Runs on any standard llama.cpp
     binary (CPU or GPU).  Best for users without a dedicated GPU.
 
-The manager downloads the chosen GGUF to ~/.myapp/models/ on first use, then
+The manager downloads the chosen GGUF to <app_data>/models/ on first use, then
 starts llama-server as a subprocess on localhost:8080 exposing an
 OpenAI-compatible /v1 endpoint.  Paramodus connects to it via OpenAIChat with
 a custom base_url — no API key required.
 
 Binary resolution order (for llama-server):
   1. PyInstaller bundle (sys._MEIPASS / sibling exe dir)
-  2. ~/.myapp/bin/llama-server[.exe]   ← placed by scripts/get_llama_server.py
+  2. <app_data>/bin/llama-server[.exe]   ← placed by scripts/get_llama_server.py
+     (e.g. %APPDATA%\\Paramodus\\bin on Windows)
   3. System PATH
 
 For the .exe distribution, bundle llama-server.exe via paramodus.spec:
@@ -38,6 +39,8 @@ import time
 from typing import Callable, Optional
 
 import requests
+
+from paths import get_app_data_dir
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +76,7 @@ def _free_port(port: int) -> None:
 # Paths
 # ---------------------------------------------------------------------------
 
-APP_DATA   = os.path.join(os.path.expanduser("~"), ".myapp")
+APP_DATA   = get_app_data_dir()  # %APPDATA%\Paramodus on Windows
 MODELS_DIR = os.path.join(APP_DATA, "models")
 BIN_DIR    = os.path.join(APP_DATA, "bin")
 
@@ -142,7 +145,8 @@ class BonsaiManager:
 
         1. Bundled inside the PyInstaller .exe directory (sys._MEIPASS or
            the folder that contains the frozen executable).
-        2. ~/.myapp/bin/  — populated by scripts/get_llama_server.py.
+        2. <app_data>/bin/  — populated by scripts/get_llama_server.py
+           (e.g. %APPDATA%\\Paramodus\\bin on Windows).
         3. System PATH.
         """
         exe = "llama-server.exe" if sys.platform == "win32" else "llama-server"
@@ -567,7 +571,7 @@ class BonsaiManager:
             print(f"[BonsaiManager] Server ready at http://{SERVER_HOST}:{SERVER_PORT}/v1")
             return True
 
-        print("[BonsaiManager] llama-server exited unexpectedly — check ~/.myapp/llama_server.log")
+        print("[BonsaiManager] llama-server exited unexpectedly — check llama_server.log in the Paramodus app-data folder.")
         return False
 
     def stop_server(self) -> None:
