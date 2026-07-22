@@ -118,15 +118,19 @@ class ApiBridge:
         bonsai.cancel_download(model_key)
         return {"status": "cancelled"}
 
-    def start_bonsai(self, model_key: str = DEFAULT_MODEL, n_gpu_layers: int = 0) -> dict:
+    def start_bonsai(self, model_key: str = DEFAULT_MODEL, n_gpu_layers: int = -1) -> dict:
         """
         Start llama-server in the background.
         Calls onBonsaiServerReady(true/false) on the frontend when done.
+
+        n_gpu_layers=-1 (default) delegates to BonsaiManager._detect_gpu()
+        which auto-selects the best value for the current hardware.
+        Pass 0 to force CPU-only, 99 for full GPU offload.
         """
         def _worker():
-            # n_gpu_layers=None triggers auto-detection in BonsaiManager._detect_gpu()
-            # The n_gpu_layers param from the UI is used only if explicitly != -1
-            effective_ngl = n_gpu_layers if n_gpu_layers >= 0 else None
+            # n_gpu_layers=-1  → pass None so manager auto-detects
+            # n_gpu_layers>=0  → use the explicit value from the UI
+            effective_ngl = None if n_gpu_layers < 0 else n_gpu_layers
             ok = bonsai.start_server(model_key=model_key, n_gpu_layers=effective_ngl)
             if self.window:
                 self.window.evaluate_js(f"onBonsaiServerReady({'true' if ok else 'false'})")
@@ -143,7 +147,7 @@ class ApiBridge:
     def begin_auto_setup(self, model_key: str = DEFAULT_MODEL) -> dict:
         """
         Zero-click Bonsai setup — called automatically by the frontend.
-        Chains: binary check → download (if needed) → server start.
+        Chains: binary check/download → model download (if needed) → server start.
         All progress is reported back via onBonsaiSetupProgress(phase, pct, msg).
         """
         def _report(phase: str, pct: float, msg: str):
@@ -153,16 +157,33 @@ class ApiBridge:
                 )
 
         def _worker():
-            # ── 1. Binary check ──────────────────────────────────────────────
+            # ── 1. Binary check — auto-download PrismML if not found ─────────
             if not bonsai._get_llama_server_path():
-                _report('error', -1,
-                    'llama-server not found — rebuild the exe with PyInstaller.')
-                return
+                _report('downloading', 0, 'Downloading llama-server (PrismML)…')
+                try:
+                    from scripts.get_llama_server import download_prismml_binary
+                    from local_model.manager import BIN_DIR
+
+                    def _bin_cb(pct: float, msg: str):
+                        _report('downloading', pct * 0.2, msg)  # binary = 0-20% of progress bar
+
+                    download_prismml_binary(BIN_DIR)
+                except Exception as exc:
+                    _report('error', -1, f'Failed to download llama-server: {exc}')
+                    return
+
+                # Re-check after download
+                if not bonsai._get_llama_server_path():
+                    _report('error', -1,
+                        'llama-server download succeeded but binary not found — check logs.')
+                    return
 
             # ── 2. Download model if not already on disk ─────────────────────
             if not bonsai.is_model_downloaded(model_key):
                 def _dl_cb(pct: float, msg: str):
-                    _report('downloading', pct, msg)
+                    # Model download = 20-100% of progress bar
+                    scaled = 20.0 + pct * 0.8
+                    _report('downloading', scaled, msg)
 
                 ok = bonsai.download_model(model_key=model_key, progress_cb=_dl_cb)
                 if not ok:
@@ -172,11 +193,7 @@ class ApiBridge:
             # ── 3. Start server ──────────────────────────────────────────────
             _report('starting', 0, 'Loading model into memory…')
 
-            # Feed live stdout lines from llama-server to the UI overlay so
-            # users see real progress (layer counts, tensor loading, etc.)
             def _server_line_cb(line: str) -> None:
-                # Only forward lines that look like meaningful load progress;
-                # skip empty lines and very short ones
                 stripped = line.strip()
                 if len(stripped) > 5:
                     _report('starting', 0, stripped[:90])
@@ -290,7 +307,6 @@ class ApiBridge:
         """
         text_lower = text.lower()
         
-        # Score each tone based on keyword presence
         scores = {
             'excited': 0,
             'playful': 0,
@@ -298,38 +314,31 @@ class ApiBridge:
             'calm': 0
         }
         
-        # Excited indicators
         excited_words = ['!', 'amazing', 'awesome', 'fantastic', 'great', 'excellent', 
                         'wonderful', 'exciting', 'incredible', 'brilliant', 'love']
         for word in excited_words:
             scores['excited'] += text_lower.count(word)
         
-        # Playful indicators
         playful_words = ['😊', '😄', '🎉', 'haha', 'fun', 'enjoy', 'play', 'joke', 
                         'funny', 'silly', 'cool', '👍', '✨']
         for word in playful_words:
             scores['playful'] += text_lower.count(word)
         
-        # Serious indicators
         serious_words = ['important', 'critical', 'warning', 'caution', 'error',
                         'must', 'should', 'require', 'necessary', 'essential',
                         'security', 'risk', 'issue', 'problem', 'careful']
         for word in serious_words:
             scores['serious'] += text_lower.count(word)
         
-        # Calm indicators (gentle, instructional)
         calm_words = ['here', 'let me', 'simply', 'just', 'easy', 'step', 'guide',
                      'help', 'explain', 'understand', 'note', 'consider']
         for word in calm_words:
             scores['calm'] += text_lower.count(word)
         
-        # Return the highest scoring tone, default to 'calm'
         if max(scores.values()) == 0:
             return 'calm'
         
         return max(scores, key=scores.get)
 
     def _run_multi_agent(self, user_text, target_id):
-        # Placeholder for multi-agent support if needed, but keeping it simple for now
         self._run_single_agent(user_text, target_id)
-
