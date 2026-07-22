@@ -66,15 +66,19 @@ def kb(tmp_path):
 @pytest.fixture()
 def patched_kb(kb, monkeypatch):
     """
-    Patches the module-level `knowledge` singleton in agents.workspace_agent
-    with the isolated `kb` fixture instance, then yields it.
+    Patches the lazy Knowledge singleton in agents.workspace_agent with the
+    isolated `kb` fixture instance, then yields it.
 
-    All service functions (ingest_files, ingest_text, search_knowledge_base,
-    clear_knowledge_base, get_knowledge_stats) read `knowledge` from their
-    own module globals, so patching it here is sufficient.
+    workspace_agent stores its Knowledge singleton in the private module
+    global `_knowledge`, accessed via `_get_knowledge()` (which creates it on
+    first call).  Setting `wa._knowledge = kb` makes `_get_knowledge()` return
+    our isolated instance instead of constructing the production one, so all
+    service functions (ingest_files, ingest_text, search_knowledge_base,
+    clear_knowledge_base, get_knowledge_stats) operate against the throwaway
+    temp-backed LanceDb — no writes to the real app-data dir.
     """
     import agents.workspace_agent as wa
-    monkeypatch.setattr(wa, "knowledge", kb)
+    monkeypatch.setattr(wa, "_knowledge", kb)
     yield kb
 
 
